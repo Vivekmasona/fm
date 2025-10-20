@@ -1,64 +1,119 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>🎙️ FM Dashboard</title>
+<meta charset="utf-8"/>
+<title>🎙️ FM Control Panel</title>
 <style>
-  body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:20px;}
-  input,button{margin:10px;padding:10px;border-radius:10px;border:none;font-weight:bold;}
-  audio{margin-top:20px;width:90%;border-radius:10px;}
+body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:30px}
+button,input{padding:10px;margin:8px;border-radius:8px;border:none;font-size:16px}
+button{background:#28a745;color:white;cursor:pointer}
+audio{margin-top:16px;width:80%}
+#status{margin-top:20px;font-weight:bold}
 </style>
 </head>
 <body>
-<h2>🎙️ FM Control Panel</h2>
-<input type="file" id="fileInput" accept="audio/*" />
-<audio id="player" controls muted></audio>
+
+<h1>🎧 FM Broadcast Control</h1>
+<input id="file" type="file" accept="audio/*">
+<button id="start">Start</button>
+<button id="change" disabled>Change Song</button>
+<div id="status">Connecting...</div>
+<div id="listeners">Listeners: 0</div>
+<audio id="player" controls></audio>
 
 <script>
-const ws = new WebSocket("wss://fmconnector.onrender.com");
-let pc, stream, title = "";
+const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const socket = new WebSocket(WS);
 
-ws.onopen = () => {
-  ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
-  console.log("✅ Connected to server");
+const fileEl = document.getElementById("file");
+const player = document.getElementById("player");
+const statusEl = document.getElementById("status");
+const countEl = document.getElementById("listeners");
+let localStream = null;
+let currentTrack = null;
+let pcs = new Map();
+let peerCount = 0;
+
+function setStatus(msg, ok=true){
+  statusEl.textContent = msg;
+  statusEl.style.color = ok ? "#0f0" : "#f33";
+}
+
+socket.onopen = () => {
+  socket.send(JSON.stringify({ type:"register", role:"broadcaster" }));
+  setStatus("Connected ✅");
 };
 
-document.getElementById("fileInput").onchange = async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  title = file.name;
-  const audio = document.getElementById("player");
-  audio.src = URL.createObjectURL(file);
-  await audio.play();
-  await new Promise(r => setTimeout(r, 200));
-  stream = audio.captureStream();
-  pc = new RTCPeerConnection();
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+socket.onmessage = async e => {
+  const msg = JSON.parse(e.data);
 
-  pc.onicecandidate = ev => {
-    if (ev.candidate)
-      ws.send(JSON.stringify({ type: "candidate", payload: ev.candidate }));
+  if (msg.type === "listener-joined") {
+    peerCount++;
+    countEl.textContent = "Listeners: " + peerCount;
+    makePeer(msg.id);
+  }
+
+  if (msg.type === "answer") {
+    const pc = pcs.get(msg.from);
+    if (pc) await pc.setRemoteDescription(msg.payload);
+  }
+
+  if (msg.type === "candidate") {
+    const pc = pcs.get(msg.from);
+    if (pc) try { await pc.addIceCandidate(msg.payload); } catch {}
+  }
+
+  if (msg.type === "peer-left") {
+    peerCount = Math.max(0, peerCount - 1);
+    countEl.textContent = "Listeners: " + peerCount;
+  }
+};
+
+async function startBroadcast() {
+  const file = fileEl.files[0];
+  if (!file) return alert("Select audio file first");
+  player.src = URL.createObjectURL(file);
+  await player.play();
+
+  localStream = player.captureStream ? player.captureStream() : player.mozCaptureStream();
+  currentTrack = localStream.getAudioTracks()[0];
+  document.getElementById("change").disabled = false;
+
+  setStatus("🎙️ Broadcasting...");
+}
+
+async function changeSong() {
+  const file = fileEl.files[0];
+  if (!file) return alert("Select new audio file");
+  player.src = URL.createObjectURL(file);
+  await player.play();
+  const newStream = player.captureStream ? player.captureStream() : player.mozCaptureStream();
+  const newTrack = newStream.getAudioTracks()[0];
+  for (const pc of pcs.values()) {
+    const sender = pc.getSenders().find(s => s.track && s.track.kind === "audio");
+    if (sender) sender.replaceTrack(newTrack);
+  }
+  currentTrack = newTrack;
+  setStatus("🎶 Song changed live");
+}
+
+async function makePeer(id) {
+  const pc = new RTCPeerConnection({ iceServers:[{urls:"stun:stun.l.google.com:19302"}] });
+  pcs.set(id, pc);
+  if (currentTrack) pc.addTrack(currentTrack, localStream);
+
+  pc.onicecandidate = e=>{
+    if (e.candidate)
+      socket.send(JSON.stringify({type:"candidate",target:id,payload:e.candidate}));
   };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  ws.send(JSON.stringify({ type: "offer", payload: offer }));
+  socket.send(JSON.stringify({type:"offer",target:id,payload:pc.localDescription}));
+}
 
-  // send sync updates every 2s
-  setInterval(() => {
-    ws.send(JSON.stringify({ type: "sync", time: audio.currentTime, title }));
-  }, 2000);
-};
-
-ws.onmessage = async (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.type === "answer") {
-    await pc.setRemoteDescription(msg.payload);
-  }
-  if (msg.type === "candidate") {
-    await pc.addIceCandidate(msg.payload);
-  }
-};
+document.getElementById("start").onclick = startBroadcast;
+document.getElementById("change").onclick = changeSong;
 </script>
 </body>
 </html>
