@@ -2,59 +2,236 @@
 
 
 
-🎶 Live FM Radio
+
+
 <style>
-body { background:#000; color:#0f0; font-family:sans-serif; text-align:center; padding:30px; }
-h2 { color:#0f0; }
-audio { margin-top:20px; width:90%; }
-#status { margin-top:10px; }
+:root {
+  --bg:#050607;
+  --accent:#00ffcc;
+  --text:#00ffcc;
+  --red:#ff0033;
+  --font:"Poppins",sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{
+  height:100%;
+  overflow:hidden;
+  touch-action:none;
+}
+body{
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  background:radial-gradient(circle at center,#0a0a10 0%,#000 100%);
+  color:var(--text);
+  font-family:var(--font);
+  text-align:center;
+  position:relative;
+}
+
+/* Background Ripple */
+.ripple{
+  position:absolute;
+  top:50%;
+  left:50%;
+  width:260px;
+  height:260px;
+  border-radius:50%;
+  background:radial-gradient(circle,var(--accent) 0%,transparent 70%);
+  opacity:0.1;
+  transform:translate(-50%,-50%) scale(0.4);
+  animation:ripple 3.5s infinite linear;
+}
+.ripple:nth-child(2){animation-delay:1s;}
+.ripple:nth-child(3){animation-delay:2s;}
+@keyframes ripple{
+  0%{transform:translate(-50%,-50%) scale(0.4);opacity:0.1;}
+  70%{transform:translate(-50%,-50%) scale(2.2);opacity:0.03;}
+  100%{transform:translate(-50%,-50%) scale(2.5);opacity:0;}
+}
+
+/* Logo */
+.logo-box{
+  width:110px;
+  height:110px;
+  background:linear-gradient(135deg,#00ffc8,#007a7a);
+  border-radius:18px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:900;
+  font-size:1.3em;
+  color:#000;
+  text-shadow:0 0 8px #00ffe0;
+  box-shadow:0 0 25px #00ffc830,0 0 60px #00ffc820;
+  letter-spacing:1px;
+  margin-bottom:15px;
+}
+
+/* Title + Status */
+h2{
+  font-size:1.8em;
+  letter-spacing:2px;
+  text-shadow:0 0 18px var(--accent);
+}
+#status{margin-top:10px;font-size:0.9em;opacity:0.8;}
+#timer{margin-top:4px;font-size:0.9em;letter-spacing:1px;}
+
+/* Controls */
+.controls{
+  display:flex;
+  gap:35px;
+  margin-top:35px;
+}
+button{
+  background:transparent;
+  border:none;
+  outline:none;
+  cursor:pointer;
+  transition:0.3s ease;
+  border-radius:50%;
+  padding:22px;
+  box-shadow:0 0 18px #00ffc820;
+  position:relative;
+}
+button:hover{transform:scale(1.1);}
+svg{width:34px;height:34px;fill:var(--accent);}
+
+/* Play Button Red Ripple */
+.play-btn.active::after{
+  content:"";
+  position:absolute;
+  inset:-14px;
+  border:3px solid var(--red);
+  border-radius:50%;
+  animation:redPulse 1.5s infinite;
+  opacity:0.3;
+}
+@keyframes redPulse{
+  0%{transform:scale(1);opacity:0.3;}
+  50%{transform:scale(1.4);opacity:0.1;}
+  100%{transform:scale(1);opacity:0.3;}
+}
 </style>
 
 
+  <div class="ripple"></div>
+  <div class="ripple"></div>
+  <div class="ripple"></div>
 
-<h2>🔊 FM Radio</h2>
-<div id="status">Connecting...</div>
-<audio id="player" controls autoplay></audio>
+  <div class="logo-box">BIHAR<br />FM</div>
+  <h2>🎶 Bihar FM 007</h2>
+  <div id="status">Connecting...</div>
+  <div id="timer">00:00</div>
+
+  <audio id="player" autoplay></audio>
+
+  <div class="controls">
+    <button id="playPauseBtn" class="play-btn" aria-label="Play/Pause">
+      <svg id="playIcon" viewbox="0 0 24 24"><path d="M8 5v14l11-7z"/></path></svg>
+      <svg id="pauseIcon" viewbox="0 0 24 24" style="display:none;"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></path></svg>
+    </button>
+
+    <button id="muteBtn" aria-label="Mute/Unmute">
+      <svg id="volIcon" viewbox="0 0 24 24"><path d="M3 10v4h4l5 5V5l-5 5H3z"/></path></svg>
+      <svg id="muteIcon" viewbox="0 0 24 24" style="display:none;">
+        <path d="M16.5 12l2.5 2.5L17.09 16l-2.5-2.5L12 16l-1.41-1.41L12.09 12l-1.5-1.5L12 9l2.5 2.5L17.09 9l1.41 1.41L16.5 12zM3 10v4h4l5 5V5l-5 5H3z"/>
+      </path></svg>
+    </button>
+  </div>
 
 <script>
-const WS = "wss://fmconnector.onrender.com"; // same server
-const socket = new WebSocket(WS);
-const player = document.getElementById("player");
-const statusEl = document.getElementById("status");
-let pc;
+const WS="wss://fmconnector.onrender.com";
+const socket=new WebSocket(WS);
+const player=document.getElementById("player");
+const statusEl=document.getElementById("status");
+const timerEl=document.getElementById("timer");
+let pc,playing=false,timeUpdater;
 
-function setStatus(t){ statusEl.textContent = t; }
+function setStatus(t){statusEl.textContent=t;}
+function fmtTime(s){
+  let m=Math.floor(s/60);
+  let ss=String(Math.floor(s%60)).padStart(2,"0");
+  return `${m}:${ss}`;
+}
 
-socket.onopen = () => {
-  socket.send(JSON.stringify({ type: "register", role: "listener" }));
+socket.onopen=()=>{
+  socket.send(JSON.stringify({type:"register",role:"listener"}));
   setStatus("Waiting for live broadcast...");
 };
 
-socket.onmessage = async e => {
-  const msg = JSON.parse(e.data);
-
-  if (msg.type === "offer") {
+socket.onmessage=async e=>{
+  const msg=JSON.parse(e.data);
+  if(msg.type==="offer"){
     setStatus("🎧 Connecting...");
-    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-
-    pc.ontrack = ev => {
-      player.srcObject = ev.streams[0];
-      setStatus("🎵 Live now!");
+    pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+    pc.ontrack=ev=>{
+      player.srcObject=ev.streams[0];
+      setStatus("📻 LIVE ON AIR");
+      document.querySelector(".play-btn").classList.add("active");
     };
-
-    pc.onicecandidate = ev => {
-      if (ev.candidate)
-        socket.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
+    pc.onicecandidate=ev=>{
+      if(ev.candidate)
+        socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:ev.candidate}));
     };
-
     await pc.setRemoteDescription(msg.payload);
-    const ans = await pc.createAnswer();
+    const ans=await pc.createAnswer();
     await pc.setLocalDescription(ans);
-    socket.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
+    socket.send(JSON.stringify({type:"answer",target:msg.from,payload:ans}));
   }
+  if(msg.type==="candidate"&&pc){try{await pc.addIceCandidate(msg.payload);}catch{}}
+};
 
-  if (msg.type === "candidate" && pc) {
-    try { await pc.addIceCandidate(msg.payload); } catch {}
+// Controls
+const playBtn=document.getElementById("playPauseBtn");
+const playIcon=document.getElementById("playIcon");
+const pauseIcon=document.getElementById("pauseIcon");
+const muteBtn=document.getElementById("muteBtn");
+const volIcon=document.getElementById("volIcon");
+const muteIcon=document.getElementById("muteIcon");
+
+playBtn.onclick=()=>{
+  if(playing){
+    player.pause();
+  }else{
+    player.play();
+  }
+};
+
+// Audio event handling
+player.onplay=()=>{
+  playing=true;
+  playIcon.style.display="none";
+  pauseIcon.style.display="block";
+  document.querySelector(".play-btn").classList.add("active");
+  // Real time update from audio
+  clearInterval(timeUpdater);
+  timeUpdater=setInterval(()=>timerEl.textContent=fmtTime(player.currentTime),1000);
+};
+player.onpause=()=>{
+  playing=false;
+  playIcon.style.display="block";
+  pauseIcon.style.display="none";
+  document.querySelector(".play-btn").classList.remove("active");
+  clearInterval(timeUpdater);
+};
+player.onended=()=>{
+  playing=false;
+  clearInterval(timeUpdater);
+  timerEl.textContent="00:00";
+  document.querySelector(".play-btn").classList.remove("active");
+};
+
+// Mute/Unmute
+muteBtn.onclick=()=>{
+  player.muted=!player.muted;
+  if(player.muted){
+    volIcon.style.display="none";
+    muteIcon.style.display="block";
+  }else{
+    volIcon.style.display="block";
+    muteIcon.style.display="none";
   }
 };
 </script>
