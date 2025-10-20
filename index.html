@@ -1,0 +1,62 @@
+<!doctype html>
+
+
+
+🎶 Live FM Radio
+<style>
+body { background:#000; color:#0f0; font-family:sans-serif; text-align:center; padding:30px; }
+h2 { color:#0f0; }
+audio { margin-top:20px; width:90%; }
+#status { margin-top:10px; }
+</style>
+
+
+
+<h2>🔊 FM Radio</h2>
+<div id="status">Connecting...</div>
+<audio id="player" controls autoplay></audio>
+
+<script>
+const WS = "wss://fmconnector.onrender.com"; // same server
+const socket = new WebSocket(WS);
+const player = document.getElementById("player");
+const statusEl = document.getElementById("status");
+let pc;
+
+function setStatus(t){ statusEl.textContent = t; }
+
+socket.onopen = () => {
+  socket.send(JSON.stringify({ type: "register", role: "listener" }));
+  setStatus("Waiting for live broadcast...");
+};
+
+socket.onmessage = async e => {
+  const msg = JSON.parse(e.data);
+
+  if (msg.type === "offer") {
+    setStatus("🎧 Connecting...");
+    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+
+    pc.ontrack = ev => {
+      player.srcObject = ev.streams[0];
+      setStatus("🎵 Live now!");
+    };
+
+    pc.onicecandidate = ev => {
+      if (ev.candidate)
+        socket.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
+    };
+
+    await pc.setRemoteDescription(msg.payload);
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    socket.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
+  }
+
+  if (msg.type === "candidate" && pc) {
+    try { await pc.addIceCandidate(msg.payload); } catch {}
+  }
+};
+</script>
+
+</!doctype>
