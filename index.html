@@ -1,57 +1,60 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>🎧 FM Radio</title>
+<meta charset="utf-8"/>
+<title>🎶 Live FM Radio</title>
 <style>
-  body{background:#000;color:#fff;font-family:sans-serif;text-align:center;padding:20px;}
-  h2{font-size:24px;margin:10px;}
-  #title{opacity:.8;}
-  audio{width:90%;margin-top:30px;border-radius:10px;}
+body { background:#000; color:#0f0; font-family:sans-serif; text-align:center; padding:30px; }
+h2 { color:#0f0; }
+audio { margin-top:20px; width:90%; }
+#status { margin-top:10px; }
 </style>
 </head>
 <body>
-<h2>🎧 FM Radio</h2>
-<p id="title">Waiting for stream...</p>
-<audio id="audio" controls autoplay></audio>
+
+<h2>🔊 FM Radio</h2>
+<div id="status">Connecting...</div>
+<audio id="player" controls autoplay></audio>
 
 <script>
-const ws = new WebSocket("wss://fmconnector.onrender.com");
-let pc, audio = document.getElementById("audio");
+const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const socket = new WebSocket(WS);
+const player = document.getElementById("player");
+const statusEl = document.getElementById("status");
+let pc;
 
-ws.onopen = () => ws.send(JSON.stringify({ type: "register", role: "listener" }));
+function setStatus(t){ statusEl.textContent = t; }
 
-ws.onmessage = async (e) => {
+socket.onopen = () => {
+  socket.send(JSON.stringify({ type: "register", role: "listener" }));
+  setStatus("Waiting for live broadcast...");
+};
+
+socket.onmessage = async e => {
   const msg = JSON.parse(e.data);
 
   if (msg.type === "offer") {
-    pc = new RTCPeerConnection();
+    setStatus("🎧 Connecting...");
+    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
     pc.ontrack = ev => {
-      audio.srcObject = ev.streams[0];
-      audio.play().catch(()=>console.log("Autoplay blocked"));
+      player.srcObject = ev.streams[0];
+      setStatus("🎵 Live now!");
     };
 
     pc.onicecandidate = ev => {
       if (ev.candidate)
-        ws.send(JSON.stringify({ type: "candidate", payload: ev.candidate }));
+        socket.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
     };
 
     await pc.setRemoteDescription(msg.payload);
     const ans = await pc.createAnswer();
     await pc.setLocalDescription(ans);
-    ws.send(JSON.stringify({ type: "answer", payload: ans }));
+    socket.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
   }
 
   if (msg.type === "candidate" && pc) {
-    await pc.addIceCandidate(msg.payload);
-  }
-
-  if (msg.type === "sync") {
-    document.getElementById("title").textContent = msg.title;
-    if (audio && audio.currentTime < msg.time - 1) {
-      audio.currentTime = msg.time;
-    }
+    try { await pc.addIceCandidate(msg.payload); } catch {}
   }
 };
 </script>
