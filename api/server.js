@@ -1,57 +1,71 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import http from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-import crypto from "crypto";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
 
 const app = express();
-
-// serve static
-app.use(express.static(rootDir));
-app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
-app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
-
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
-const clients = new Map();
 
-let currentMeta = null; // for reconnect (title, time, poster, quality)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  next();
+});
+
+app.get("/", (_, res) => res.send("🎧 FM Signaling Server Active"));
+
+// store all connected sockets
+const clients = new Map();
 
 wss.on("connection", (ws) => {
   const id = crypto.randomUUID();
   clients.set(id, { ws });
-  console.log("🔗 Connected", id);
+  console.log("🔌 New connection:", id);
 
-  // send current song state
-  if (currentMeta)
-    ws.send(JSON.stringify({ type: "meta-update", payload: currentMeta }));
-
-  ws.on("message", (msg) => {
+  ws.on("message", (data) => {
     try {
-      const data = JSON.parse(msg);
-      const { type, payload } = data;
+      const msg = JSON.parse(data.toString());
+      const { type, target, payload, role } = msg;
 
-      if (type === "broadcast-meta") {
-        currentMeta = payload;
-        for (const [cid, c] of clients)
-          if (c.ws.readyState === 1 && c.ws !== ws)
+      if (type === "register") {
+        clients.get(id).role = role;
+        console.log("Registered:", role, id);
+
+        // notify broadcaster of new listener
+        if (role === "listener") {
+          for (const [cid, c] of clients) {
+            if (c.role === "broadcaster")
+              c.ws.send(JSON.stringify({ type: "listener-joined", id }));
+          }
+        }
+        return;
+      }
+
+      // offer, answer, candidate routing
+      if (["offer", "answer", "candidate"].includes(type)) {
+        const targetConn = clients.get(target);
+        if (targetConn)
+          targetConn.ws.send(JSON.stringify({ type, from: id, payload }));
+      }
+
+      // broadcast title/time update
+      if (type === "meta-update") {
+        for (const [, c] of clients)
+          if (c.role === "listener")
             c.ws.send(JSON.stringify({ type: "meta-update", payload }));
       }
-    } catch (e) {
-      console.error("parse error", e);
+    } catch (err) {
+      console.error("Error parsing:", err);
     }
   });
 
   ws.on("close", () => {
     clients.delete(id);
-    console.log("❌ Disconnected", id);
+    for (const [, c] of clients)
+      if (c.role === "broadcaster")
+        c.ws.send(JSON.stringify({ type: "peer-left", id }));
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ Running on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
