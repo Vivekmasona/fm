@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>FM Listener</title>
+  <style>
+    body { font-family: sans-serif; background: #0f0f0f; color: white; text-align: center; padding: 20px; }
+    #title { font-size: 22px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h1>🎧 Live FM Listener</h1>
+  <div id="title">Waiting for broadcast...</div>
+  <audio id="audio" controls autoplay></audio>
+
+  <script>
+    const ws = new WebSocket(location.origin.replace(/^http/, 'ws'));
+    const audio = document.getElementById('audio');
+    const title = document.getElementById('title');
+
+    ws.onopen = () => ws.send(JSON.stringify({ type: "listener" }));
+    ws.onmessage = e => {
+      const data = JSON.parse(e.data);
+      if (data.type === "meta") {
+        title.textContent = `${data.title} — ${data.quality}`;
+      }
+    };
+  </script>
+</body>
+</html>
