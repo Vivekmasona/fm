@@ -1,18 +1,22 @@
-// server.js
 import express from "express";
 import { WebSocketServer } from "ws";
-import http from "http";
+import { createServer } from "http";
+import crypto from "crypto";
 
 const app = express();
-app.get("/", (_, res) => res.send("🎧 FM WebSocket server is running!"));
-const server = http.createServer(app);
+const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 const clients = new Map();
-let currentMeta = null; // store title + currentTime
+let currentMeta = null;
+let lastOffer = null;
 
-function broadcast(obj, filter) {
-  const msg = JSON.stringify(obj);
+app.get("/", (req, res) => {
+  res.send("🎧 FM WebSocket server is running!");
+});
+
+function broadcast(data, filter) {
+  const msg = JSON.stringify(data);
   for (const c of clients.values()) {
     if (!filter || filter(c)) c.ws.send(msg);
   }
@@ -22,7 +26,7 @@ wss.on("connection", (ws) => {
   const id = crypto.randomUUID();
   const client = { id, ws, role: null };
   clients.set(id, client);
-  console.log(`🆕 New socket ${id}`);
+  console.log(`🆕 Client ${id} connected`);
 
   ws.on("message", (data) => {
     let msg;
@@ -35,35 +39,44 @@ wss.on("connection", (ws) => {
     switch (msg.type) {
       case "register":
         client.role = msg.role;
-        console.log(`👤 ${id} registered as ${client.role}`);
-        // If listener joins late, send currentMeta
-        if (msg.role === "listener" && currentMeta) ws.send(JSON.stringify({ type: "meta", ...currentMeta }));
+        console.log(`👤 ${id} registered as ${msg.role}`);
+
+        // 🟢 New listener reconnect fix
+        if (msg.role === "listener") {
+          if (currentMeta)
+            ws.send(JSON.stringify({ type: "meta", ...currentMeta }));
+          if (lastOffer)
+            ws.send(JSON.stringify({ type: "offer", payload: lastOffer }));
+        }
         break;
 
       case "offer":
-        broadcast(msg, c => c.role === "listener");
+        lastOffer = msg.payload;
+        broadcast(msg, (c) => c.role === "listener");
         break;
 
       case "answer":
-        broadcast(msg, c => c.role === "broadcaster");
+        broadcast(msg, (c) => c.role === "broadcaster");
         break;
 
       case "candidate":
-        broadcast(msg, c => c.id !== id);
+        broadcast(msg, (c) => c.id !== id);
         break;
 
       case "meta":
         currentMeta = msg;
-        broadcast(msg, c => c.role === "listener");
+        broadcast(msg, (c) => c.role === "listener");
         break;
     }
   });
 
   ws.on("close", () => {
     clients.delete(id);
-    console.log(`❌ Closed ${id}`);
+    console.log(`❌ Client ${id} disconnected`);
   });
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => console.log(`🚀 FM Server ready on port ${PORT}`));
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
