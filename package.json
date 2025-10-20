@@ -1,0 +1,26 @@
+{
+  "name": "fm-websocket-server",
+  "version": "1.0.0",
+  "description": "Ultra fast FM WebSocket signaling server for live audio streaming on Render.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "websocket",
+    "webrtc",
+    "fm",
+    "audio-streaming",
+    "render"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
