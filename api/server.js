@@ -1,82 +1,78 @@
 import express from "express";
 import { WebSocketServer } from "ws";
-import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const PORT = process.env.PORT || 8080;
 
-// Serve static files from "public"
-const publicPath = path.join(__dirname, "../public");
-app.use(express.static(publicPath));
+// Serve static files from root and dashboard
+app.use(express.static(path.join(__dirname, "..")));
+app.use("/dashboard", express.static(path.join(__dirname, "../dashboard")));
 
-// ✅ Route for dashboard (optional direct link)
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(publicPath, "dashboard/index.html"));
+// Create server
+const server = app.listen(PORT, () => {
+  console.log(`🚀 FM WebSocket server running on port ${PORT}`);
 });
 
-// ✅ Default listener page
-app.get("/", (req, res) => {
-  res.sendFile(path.join(publicPath, "index.html"));
-});
+// WebSocket setup
+const wss = new WebSocketServer({ server });
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
-
-// Store all clients
-const clients = new Map();
-
-function broadcastTo(role, data) {
-  for (const [, client] of clients) {
-    if (client.role === role && client.ws.readyState === 1) {
-      client.ws.send(JSON.stringify(data));
-    }
-  }
-}
+let broadcaster = null;
+const listeners = new Set();
 
 wss.on("connection", (ws) => {
-  const id = Math.random().toString(36).slice(2);
-  clients.set(id, { ws });
-
   ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
-      if (data.type === "register") {
-        clients.get(id).role = data.role;
-        if (data.role === "listener") {
-          broadcastTo("broadcaster", { type: "listener-joined", id });
+
+      // Broadcaster joins
+      if (data.type === "broadcaster") {
+        broadcaster = ws;
+        ws.role = "broadcaster";
+        ws.send(JSON.stringify({ type: "ack", message: "Broadcaster connected" }));
+        broadcastListenerCount();
+      }
+
+      // Listener joins
+      if (data.type === "listener") {
+        ws.role = "listener";
+        listeners.add(ws);
+        ws.send(JSON.stringify({ type: "ack", message: "Listener connected" }));
+        broadcastListenerCount();
+      }
+
+      // Broadcast metadata (title / quality)
+      if (data.type === "meta" && ws.role === "broadcaster") {
+        for (const l of listeners) {
+          if (l.readyState === 1) {
+            l.send(JSON.stringify({ type: "meta", title: data.title, quality: data.quality }));
+          }
         }
-        return;
       }
 
-      // Forward signaling
-      if (["offer", "answer", "candidate"].includes(data.type)) {
-        const target = clients.get(data.target);
-        if (target?.ws?.readyState === 1) {
-          target.ws.send(JSON.stringify({ ...data, from: id }));
+      // Audio chunk from broadcaster
+      if (data.type === "audio" && ws.role === "broadcaster") {
+        for (const l of listeners) {
+          if (l.readyState === 1) l.send(msg);
         }
-        return;
       }
-
-      // Broadcast control updates (title + quality)
-      if (data.type === "broadcast-control") {
-        broadcastTo("listener", { type: "control", payload: data.payload });
-      }
-
     } catch (err) {
-      console.error("WS error:", err);
+      console.error("Error:", err);
     }
   });
 
   ws.on("close", () => {
-    const role = clients.get(id)?.role;
-    clients.delete(id);
-    if (role === "listener") {
-      broadcastTo("broadcaster", { type: "peer-left", id });
-    }
+    if (ws.role === "listener") listeners.delete(ws);
+    if (ws.role === "broadcaster") broadcaster = null;
+    broadcastListenerCount();
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+function broadcastListenerCount() {
+  const count = listeners.size;
+  if (broadcaster && broadcaster.readyState === 1) {
+    broadcaster.send(JSON.stringify({ type: "count", count }));
+  }
+}
