@@ -9,57 +9,48 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
 const app = express();
-
-// 🔹 Serve static files
 app.use(express.static(rootDir));
 
-// 🔹 Routes
 app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
 app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const clients = new Map(); // id -> { ws, role }
+let broadcaster = null;
+const listeners = new Map();
 
 wss.on("connection", (ws) => {
-  const id = crypto.randomUUID();
-  clients.set(id, { ws });
-  console.log("🔗 Connected:", id);
+  ws.on("message", (msg) => {
+    const data = JSON.parse(msg);
+    if (data.type === "register" && data.role === "broadcaster") {
+      broadcaster = ws;
+      ws.role = "broadcaster";
+      console.log("🎧 Broadcaster joined");
+    }
 
-  ws.on("message", (data) => {
-    try {
-      const msg = JSON.parse(data.toString());
-      const { type, role, target, payload } = msg;
-
-      if (type === "register") {
-        clients.get(id).role = role;
-        console.log(`🧩 ${id} registered as ${role}`);
-        if (role === "listener") {
-          for (const [pid, c] of clients)
-            if (c.role === "broadcaster")
-              c.ws.send(JSON.stringify({ type: "listener-joined", id }));
-        }
+    if (data.type === "register" && data.role === "listener") {
+      listeners.set(ws, true);
+      ws.role = "listener";
+      console.log("👂 Listener joined");
+      if (broadcaster && broadcaster.readyState === 1) {
+        broadcaster.send(JSON.stringify({ type: "listener-joined" }));
       }
+    }
 
-      if (["offer", "answer", "candidate"].includes(type) && target) {
-        const t = clients.get(target);
-        if (t?.ws?.readyState === 1)
-          t.ws.send(JSON.stringify({ type, from: id, payload }));
+    if (data.type === "broadcast" && ws.role === "broadcaster") {
+      // Forward updates to all listeners
+      for (const [client] of listeners) {
+        if (client.readyState === 1) client.send(JSON.stringify(data));
       }
-    } catch (err) {
-      console.error("⚠️ Message parse error:", err);
     }
   });
 
   ws.on("close", () => {
-    clients.delete(id);
-    console.log("❌ Disconnected:", id);
-    for (const [pid, c] of clients)
-      if (c.role === "broadcaster")
-        c.ws.send(JSON.stringify({ type: "peer-left", id }));
+    if (ws.role === "listener") listeners.delete(ws);
+    if (ws.role === "broadcaster") broadcaster = null;
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ FM server running on :${PORT}`));
+server.listen(PORT, () => console.log(`✅ FM Server live on ${PORT}`));
