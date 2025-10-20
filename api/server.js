@@ -1,65 +1,74 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import http from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
 
 const app = express();
-
-// 🔹 Serve static files
-app.use(express.static(rootDir));
-
-// 🔹 Routes
-app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
-app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
+app.use(express.static("public")); // optional if static served
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const clients = new Map(); // id -> { ws, role }
+const clients = new Map();
+
+function broadcastTo(role, data) {
+  for (const [, client] of clients) {
+    if (client.role === role && client.ws.readyState === 1) {
+      client.ws.send(JSON.stringify(data));
+    }
+  }
+}
 
 wss.on("connection", (ws) => {
-  const id = crypto.randomUUID();
+  const id = Math.random().toString(36).slice(2);
   clients.set(id, { ws });
-  console.log("🔗 Connected:", id);
 
-  ws.on("message", (data) => {
+  ws.on("message", (msg) => {
     try {
-      const msg = JSON.parse(data.toString());
-      const { type, role, target, payload } = msg;
+      const data = JSON.parse(msg);
 
-      if (type === "register") {
-        clients.get(id).role = role;
-        console.log(`🧩 ${id} registered as ${role}`);
-        if (role === "listener") {
-          for (const [pid, c] of clients)
-            if (c.role === "broadcaster")
-              c.ws.send(JSON.stringify({ type: "listener-joined", id }));
+      if (data.type === "register") {
+        clients.get(id).role = data.role;
+        console.log("🔗 Registered", id, data.role);
+        if (data.role === "listener") {
+          // notify broadcaster
+          broadcastTo("broadcaster", { type: "listener-joined", id });
         }
+        return;
       }
 
-      if (["offer", "answer", "candidate"].includes(type) && target) {
-        const t = clients.get(target);
-        if (t?.ws?.readyState === 1)
-          t.ws.send(JSON.stringify({ type, from: id, payload }));
+      // Forward signaling messages
+      if (["offer", "answer", "candidate"].includes(data.type)) {
+        const target = clients.get(data.target);
+        if (target?.ws?.readyState === 1) {
+          target.ws.send(JSON.stringify({ ...data, from: id }));
+        }
+        return;
       }
+
+      // 🟢 Broadcast control (title, quality, etc.)
+      if (data.type === "broadcast-control") {
+        broadcastTo("listener", { type: "control", payload: data.payload });
+      }
+
     } catch (err) {
-      console.error("⚠️ Message parse error:", err);
+      console.error("WS message error:", err);
     }
   });
 
   ws.on("close", () => {
+    const role = clients.get(id)?.role;
     clients.delete(id);
-    console.log("❌ Disconnected:", id);
-    for (const [pid, c] of clients)
-      if (c.role === "broadcaster")
-        c.ws.send(JSON.stringify({ type: "peer-left", id }));
+    if (role === "listener") {
+      broadcastTo("broadcaster", { type: "peer-left", id });
+    }
   });
 });
 
+app.get("/", (req, res) => {
+  res.send("🎧 FM WebSocket server is running.");
+});
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ FM server running on :${PORT}`));
+server.listen(PORT, () =>
+  console.log("✅ Server ready on port", PORT)
+);
