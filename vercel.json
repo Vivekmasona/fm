@@ -4,9 +4,14 @@
     {
       "src": "index.html",
       "use": "@vercel/static"
+    },
+    {
+      "src": "cast/index.html",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
+    { "src": "/cast", "dest": "/cast/index.html" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
