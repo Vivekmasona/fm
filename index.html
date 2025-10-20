@@ -1,41 +1,52 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>BiharFM</title>
-  <style>
-    body { font-family: sans-serif; background: #000; color: white; text-align: center; }
-    .album { width: 180px; height: 180px; border-radius: 50%; object-fit: cover; margin-top: 50px; animation: spin 8s linear infinite; }
-    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    .title { font-size: 1.2em; margin-top: 10px; }
-  </style>
+<meta charset="UTF-8" />
+<title>FM Listener</title>
+<style>
+body{background:#020617;color:#fff;text-align:center;font-family:sans-serif;overflow:hidden;}
+.player{margin-top:80px;}
+.poster{width:180px;height:180px;border-radius:50%;object-fit:cover;animation:spin 10s linear infinite;}
+@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.title{font-size:1.2em;margin:15px;}
+progress{width:70%;height:8px;border-radius:4px;background:#334155;}
+</style>
 </head>
 <body>
-  <img id="poster" class="album" src="" hidden>
-  <div id="title" class="title"></div>
-  <audio id="player" controls autoplay></audio>
+<div class="player">
+  <img id="poster" class="poster" src="" hidden>
+  <div class="title" id="title">Waiting for broadcast...</div>
+  <audio id="audio"></audio>
+  <progress id="bar" value="0" max="100"></progress>
+</div>
 
-  <script>
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host);
-    const player = document.getElementById("player");
-    const poster = document.getElementById("poster");
-    const title = document.getElementById("title");
+<script>
+const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const ws = new WebSocket(WS);
+let audio = document.getElementById("audio");
+let bar = document.getElementById("bar");
+let title = document.getElementById("title");
+let poster = document.getElementById("poster");
 
-    ws.onopen = () => ws.send(JSON.stringify({ type: "register", role: "listener" }));
+ws.onmessage = (msg)=>{
+  const data = JSON.parse(msg.data);
+  if(data.type === "meta-update"){
+    const m = data.payload;
+    if(m.poster){ poster.src = m.poster; poster.hidden = false; }
+    title.innerText = m.title || "Live Song";
+    if(!audio.src){
+      audio.src = m.poster ? m.poster : ""; // placeholder
+    }
+    const delay = (Date.now() - m.time) / 1000;
+    audio.currentTime = m.current + delay;
+    audio.volume = m.quality || 1;
+    audio.play().catch(()=>{});
+  }
+};
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.subtype === "play") {
-        title.textContent = data.title;
-        poster.src = data.poster;
-        poster.hidden = false;
-        player.src = data.audio;
-        player.playbackRate = data.quality === "high" ? 1.0 : data.quality === "medium" ? 0.95 : 0.9;
-        player.play().catch(() => {});
-      } else if (data.subtype === "pause") {
-        player.pause();
-      }
-    };
-  </script>
+audio.ontimeupdate = ()=>{
+  bar.value = (audio.currentTime / (audio.duration||1)) * 100;
+};
+</script>
 </body>
 </html>
