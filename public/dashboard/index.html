@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>🎙️ FM Dashboard</title>
+<style>
+body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:20px}
+input,select,button{margin:6px;padding:8px;border-radius:8px;font-size:16px}
+audio{margin-top:10px;width:90%}
+</style>
+</head>
+<body>
+<h1>🎧 FM Control Panel</h1>
+<input id="file" type="file" accept="audio/*">
+<input id="title" placeholder="Enter Song Title" style="width:60%">
+<select id="quality">
+  <option value="low">Low (64kbps)</option>
+  <option value="medium" selected>Medium (128kbps)</option>
+  <option value="high">High (256kbps)</option>
+</select>
+<br>
+<button id="start">Start Stream</button>
+<button id="change">Change Song</button>
+<div id="status">Connecting...</div>
+<audio id="player" controls></audio>
+
+<script>
+const WS_URL = location.origin.replace(/^http/, 'ws') + "/ws";
+const socket = new WebSocket(WS_URL);
+let pcs = new Map();
+let localStream = null;
+let currentTrack = null;
+
+socket.onopen=()=> socket.send(JSON.stringify({type:"register", role:"broadcaster"}));
+
+socket.onmessage=async e=>{
+  const msg=JSON.parse(e.data);
+  if(msg.type==="listener-joined") makePeer(msg.id);
+  if(msg.type==="answer"){ const pc=pcs.get(msg.from); if(pc) await pc.setRemoteDescription(msg.payload);}
+  if(msg.type==="candidate"){const pc=pcs.get(msg.from); if(pc) try{await pc.addIceCandidate(msg.payload);}catch{}}
+};
+
+async function startStream(){
+  const file=document.getElementById("file").files[0];
+  const title=document.getElementById("title").value||"Unknown";
+  const quality=document.getElementById("quality").value;
+  if(!file)return alert("Select a file");
+
+  const player=document.getElementById("player");
+  player.src=URL.createObjectURL(file);
+  await player.play();
+
+  localStream=player.captureStream();
+  currentTrack=localStream.getAudioTracks()[0];
+
+  socket.send(JSON.stringify({
+    type:"broadcast-control",
+    payload:{ title, quality }
+  }));
+
+  for(const id of pcs.keys()) makePeer(id);
+}
+
+async function makePeer(id){
+  const pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+  pcs.set(id, pc);
+  if(currentTrack) pc.addTrack(currentTrack, localStream);
+  pc.onicecandidate=e=>{
+    if(e.candidate) socket.send(JSON.stringify({type:"candidate",target:id,payload:e.candidate}));
+  };
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  socket.send(JSON.stringify({type:"offer",target:id,payload:pc.localDescription}));
+}
+
+document.getElementById("start").onclick=startStream;
+document.getElementById("change").onclick=startStream;
+document.getElementById("quality").onchange=()=>{
+  const title=document.getElementById("title").value;
+  const quality=document.getElementById("quality").value;
+  socket.send(JSON.stringify({type:"broadcast-control",payload:{title,quality}}));
+};
+</script>
+</body>
+</html>
