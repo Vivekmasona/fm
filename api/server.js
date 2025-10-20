@@ -1,59 +1,73 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+
+// 🧠 Setup paths
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootDir = path.resolve(__dirname, ".."); // one level up (where index.html and dashboard/ exist)
 
 const app = express();
-app.get("/", (req, res) => res.send("🎧 FM Server Active"));
+
+// 🟢 Serve static frontend
+app.use(express.static(rootDir));
+app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
+app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
+
+// 🟢 Create HTTP + WebSocket server
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const clients = new Map(); // id -> ws
-let broadcaster = null;
-let currentTime = 0;
-let currentTitle = "";
+const clients = new Map(); // id → { ws, role }
+
+console.log("🎧 FM server booting...");
 
 wss.on("connection", (ws) => {
-  ws.on("message", (msg) => {
+  const id = crypto.randomUUID();
+  clients.set(id, { ws });
+  console.log("🔗 Client connected:", id);
+
+  ws.on("message", (data) => {
     try {
-      const data = JSON.parse(msg);
+      const msg = JSON.parse(data.toString());
+      const { type, role, target, payload } = msg;
 
-      // Register user role
-      if (data.type === "register") {
-        ws.role = data.role;
-        if (ws.role === "broadcaster") {
-          broadcaster = ws;
-          console.log("🎙️ Broadcaster connected");
-        } else console.log("🎧 Listener connected");
-      }
+      // Register role
+      if (type === "register") {
+        clients.get(id).role = role;
+        console.log(`🧩 ${id} registered as ${role}`);
 
-      // Offer/Answer/Candidate signaling
-      if (["offer", "answer", "candidate"].includes(data.type)) {
-        wss.clients.forEach((client) => {
-          if (client.readyState === 1 && client !== ws) {
-            client.send(JSON.stringify(data));
+        if (role === "listener") {
+          for (const [pid, p] of clients) {
+            if (p.role === "broadcaster") {
+              p.ws.send(JSON.stringify({ type: "listener-joined", id }));
+            }
           }
-        });
+        }
       }
 
-      // Broadcaster time & title sync
-      if (data.type === "sync") {
-        currentTime = data.time;
-        currentTitle = data.title;
-        // forward to all listeners
-        wss.clients.forEach((client) => {
-          if (client.readyState === 1 && client.role === "listener") {
-            client.send(JSON.stringify({ type: "sync", time: currentTime, title: currentTitle }));
-          }
-        });
+      // Relay offer/answer/candidate
+      if (["offer", "answer", "candidate"].includes(type) && target) {
+        const t = clients.get(target);
+        if (t && t.ws.readyState === 1)
+          t.ws.send(JSON.stringify({ type, from: id, payload }));
       }
-
-    } catch (e) {
-      console.error("Parse error", e);
+    } catch (err) {
+      console.error("⚠️ Message parse error:", err);
     }
   });
 
   ws.on("close", () => {
-    if (ws.role === "broadcaster") broadcaster = null;
+    clients.delete(id);
+    console.log("❌ Disconnected:", id);
+    // notify broadcaster(s)
+    for (const [pid, p] of clients) {
+      if (p.role === "broadcaster") {
+        p.ws.send(JSON.stringify({ type: "peer-left", id }));
+      }
+    }
   });
 });
 
