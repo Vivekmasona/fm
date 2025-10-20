@@ -1,54 +1,53 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>🎶 FM Live</title>
-<style>
-body{background:#000;color:#0f0;text-align:center;font-family:sans-serif;}
-h2{margin-top:20px}
-#meta{margin-top:10px;font-size:20px;}
-audio{width:90%;margin-top:15px;}
-</style>
+  <meta charset="UTF-8" />
+  <title>FM Listener</title>
+  <style>
+    body { font-family: sans-serif; background:#111; color:#fff; text-align:center; }
+    h1 { color: #4af; }
+    audio { width: 90%; margin-top: 20px; }
+    .title { font-size: 1.2rem; margin-top: 10px; }
+  </style>
 </head>
 <body>
-<h2>🔴 Live FM</h2>
-<div id="meta">⏳ Waiting...</div>
-<audio id="player" autoplay controls></audio>
+  <h1>🎧 Live FM Listener</h1>
+  <div class="title" id="title">Waiting for broadcast...</div>
+  <audio id="player" controls autoplay></audio>
 
-<script>
-const WS = location.origin.replace(/^http/, "ws");
-const ws = new WebSocket(WS);
-const player = document.getElementById("player");
-const meta = document.getElementById("meta");
-let pc = null;
+  <script>
+    const socket = new WebSocket(
+      (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+    );
 
-ws.onopen = () => ws.send(JSON.stringify({type:"register",role:"listener"}));
+    const audio = document.getElementById("player");
+    const titleEl = document.getElementById("title");
 
-ws.onmessage = async e => {
-  const msg = JSON.parse(e.data);
+    let source = null;
+    let ctx = null;
 
-  if(msg.type==="offer"){
-    pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
-    pc.ontrack = ev => player.srcObject = ev.streams[0];
-    pc.onicecandidate = e=>{
-      if(e.candidate) ws.send(JSON.stringify({type:"candidate",target:msg.from,payload:e.candidate}));
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: "register", role: "listener" }));
     };
-    await pc.setRemoteDescription(msg.payload);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    ws.send(JSON.stringify({type:"answer",target:msg.from,payload:pc.localDescription}));
-  }
 
-  if(msg.type==="candidate" && pc){
-    try{await pc.addIceCandidate(msg.payload);}catch{}
-  }
-
-  if(msg.type==="meta-update"){
-    const { title, time } = msg.payload;
-    const mins = Math.floor(time/60), secs = Math.floor(time%60).toString().padStart(2,'0');
-    meta.innerHTML = `🎵 ${title || 'Untitled'} <br> 🔴 Live • ${mins}:${secs}`;
-  }
-};
-</script>
+    socket.onmessage = async (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "stream-chunk") {
+        if (!ctx) {
+          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          source = ctx.createBufferSource();
+        }
+      }
+      if (msg.type === "audio-update") {
+        titleEl.textContent = msg.title || "Untitled Stream";
+        const blob = new Blob([Uint8Array.from(atob(msg.chunk), c => c.charCodeAt(0))], { type: "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        audio.src = url;
+      }
+      if (msg.type === "meta") {
+        titleEl.textContent = msg.title;
+      }
+    };
+  </script>
 </body>
 </html>
