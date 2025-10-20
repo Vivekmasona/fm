@@ -3,54 +3,55 @@ import { WebSocketServer } from "ws";
 import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
+import crypto from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
 const app = express();
-app.use(express.static(rootDir));
 
+// serve static
+app.use(express.static(rootDir));
 app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
 app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
+const clients = new Map();
 
-let broadcaster = null;
-const listeners = new Map();
+let currentMeta = null; // for reconnect (title, time, poster, quality)
 
 wss.on("connection", (ws) => {
+  const id = crypto.randomUUID();
+  clients.set(id, { ws });
+  console.log("🔗 Connected", id);
+
+  // send current song state
+  if (currentMeta)
+    ws.send(JSON.stringify({ type: "meta-update", payload: currentMeta }));
+
   ws.on("message", (msg) => {
-    const data = JSON.parse(msg);
-    if (data.type === "register" && data.role === "broadcaster") {
-      broadcaster = ws;
-      ws.role = "broadcaster";
-      console.log("🎧 Broadcaster joined");
-    }
+    try {
+      const data = JSON.parse(msg);
+      const { type, payload } = data;
 
-    if (data.type === "register" && data.role === "listener") {
-      listeners.set(ws, true);
-      ws.role = "listener";
-      console.log("👂 Listener joined");
-      if (broadcaster && broadcaster.readyState === 1) {
-        broadcaster.send(JSON.stringify({ type: "listener-joined" }));
+      if (type === "broadcast-meta") {
+        currentMeta = payload;
+        for (const [cid, c] of clients)
+          if (c.ws.readyState === 1 && c.ws !== ws)
+            c.ws.send(JSON.stringify({ type: "meta-update", payload }));
       }
-    }
-
-    if (data.type === "broadcast" && ws.role === "broadcaster") {
-      // Forward updates to all listeners
-      for (const [client] of listeners) {
-        if (client.readyState === 1) client.send(JSON.stringify(data));
-      }
+    } catch (e) {
+      console.error("parse error", e);
     }
   });
 
   ws.on("close", () => {
-    if (ws.role === "listener") listeners.delete(ws);
-    if (ws.role === "broadcaster") broadcaster = null;
+    clients.delete(id);
+    console.log("❌ Disconnected", id);
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ FM Server live on ${PORT}`));
+server.listen(PORT, () => console.log(`✅ Running on ${PORT}`));
