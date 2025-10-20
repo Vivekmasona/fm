@@ -7,20 +7,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// ✅ Serve static files from root and dashboard folder
+// Serve static files from root and dashboard
 app.use(express.static(path.join(__dirname, "..")));
 app.use("/dashboard", express.static(path.join(__dirname, "../dashboard")));
 
-// ✅ Basic route check
-app.get("/api/status", (_, res) => {
-  res.json({ ok: true, message: "Server running fine ✅" });
-});
-
+// Create server
 const server = app.listen(PORT, () => {
-  console.log(`🚀 FM WebSocket server running on ${PORT}`);
+  console.log(`🚀 FM WebSocket server running on port ${PORT}`);
 });
 
-// ✅ WebSocket setup
+// WebSocket setup
 const wss = new WebSocketServer({ server });
 
 let broadcaster = null;
@@ -31,31 +27,32 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(msg);
 
-      // Broadcaster join
+      // Broadcaster joins
       if (data.type === "broadcaster") {
         broadcaster = ws;
         ws.role = "broadcaster";
         ws.send(JSON.stringify({ type: "ack", message: "Broadcaster connected" }));
-        sendListenerCount();
+        broadcastListenerCount();
       }
 
-      // Listener join
+      // Listener joins
       if (data.type === "listener") {
         ws.role = "listener";
         listeners.add(ws);
         ws.send(JSON.stringify({ type: "ack", message: "Listener connected" }));
-        sendListenerCount();
+        broadcastListenerCount();
       }
 
-      // Metadata broadcast (title + quality)
+      // Broadcast metadata (title / quality)
       if (data.type === "meta" && ws.role === "broadcaster") {
         for (const l of listeners) {
-          if (l.readyState === 1)
+          if (l.readyState === 1) {
             l.send(JSON.stringify({ type: "meta", title: data.title, quality: data.quality }));
+          }
         }
       }
 
-      // (Optional future audio chunks)
+      // Audio chunk from broadcaster
       if (data.type === "audio" && ws.role === "broadcaster") {
         for (const l of listeners) {
           if (l.readyState === 1) l.send(msg);
@@ -69,11 +66,11 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     if (ws.role === "listener") listeners.delete(ws);
     if (ws.role === "broadcaster") broadcaster = null;
-    sendListenerCount();
+    broadcastListenerCount();
   });
 });
 
-function sendListenerCount() {
+function broadcastListenerCount() {
   const count = listeners.size;
   if (broadcaster && broadcaster.readyState === 1) {
     broadcaster.send(JSON.stringify({ type: "count", count }));
