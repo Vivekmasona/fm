@@ -1,77 +1,115 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>FM Control Panel</title>
+<meta charset="utf-8" />
+<title>🎙️ FM Control Panel</title>
 <style>
-body { font-family: sans-serif; background:#0f172a; color:#fff; text-align:center; padding:20px; }
-input,select,button { margin:10px; padding:10px; border-radius:10px; border:none; }
-.card { background:#1e293b; display:inline-block; padding:20px; border-radius:20px; box-shadow:0 0 15px #0008; }
-img { width:100px; height:100px; border-radius:15px; object-fit:cover; }
+body { background:#111; color:#fff; text-align:center; font-family:sans-serif; }
+h1 { color:#0f0; }
+input, select, button { margin:8px; padding:10px; border-radius:8px; border:none; }
+button { background:#0f0; color:#000; font-weight:bold; cursor:pointer; }
+audio { margin-top:20px; width:80%; }
+#status { margin-top:10px; color:#0f0; font-weight:bold; }
 </style>
 </head>
 <body>
-  <div class="card">
-    <h2>🎛️ FM Control Dashboard</h2>
-    <input type="text" id="title" placeholder="Song Title" /><br>
-    <input type="file" id="songFile" accept="audio/*" /><br>
-    <input type="file" id="posterFile" accept="image/*" /><br>
-    <select id="quality">
-      <option value="1.0">High</option>
-      <option value="0.7" selected>Medium</option>
-      <option value="0.4">Low</option>
-    </select><br>
-    <button id="startBtn">▶ Play</button>
-    <audio id="audio" controls style="width:80%;margin-top:10px;"></audio>
-    <div id="status"></div>
-  </div>
+<h1>🎧 FM Broadcaster</h1>
+<input type="file" id="file" accept="audio/*" />
+<select id="quality">
+  <option value="128000">128 kbps</option>
+  <option value="192000">192 kbps</option>
+  <option value="256000">256 kbps</option>
+  <option value="320000" selected>320 kbps (Crystal)</option>
+</select>
+<input type="text" id="title" placeholder="Enter song title" style="width:60%" />
+<button id="start">Start Broadcast</button>
+<button id="change" disabled>Change Song</button>
+
+<div id="status">Connecting...</div>
+<div id="listeners">Listeners: 0</div>
+<audio id="player" controls></audio>
 
 <script>
-const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const WS = location.origin.replace(/^http/, "ws");
 const ws = new WebSocket(WS);
-let audio = document.getElementById("audio");
-let posterURL = null;
+const player = document.getElementById("player");
+const fileEl = document.getElementById("file");
+const bitrateEl = document.getElementById("quality");
+const titleEl = document.getElementById("title");
+const startBtn = document.getElementById("start");
+const changeBtn = document.getElementById("change");
+const statusEl = document.getElementById("status");
+const listenersEl = document.getElementById("listeners");
 
-ws.onopen = ()=> console.log("✅ WS Connected");
+let localStream = null;
+let pcs = new Map();
+let peerCount = 0;
+let currentTrack = null;
 
-document.getElementById("posterFile").onchange = e=>{
-  const f = e.target.files[0];
-  if(f) posterURL = URL.createObjectURL(f);
-}
+function setStatus(msg, color="#0f0"){ statusEl.textContent = msg; statusEl.style.color=color; }
 
-document.getElementById("startBtn").onclick = ()=>{
-  const file = document.getElementById("songFile").files[0];
-  if(!file) return alert("Select a song file");
-  const quality = parseFloat(document.getElementById("quality").value);
-  const title = document.getElementById("title").value || file.name;
-  const url = URL.createObjectURL(file);
-  audio.src = url;
-  audio.playbackRate = 1;
-  audio.play();
-
-  // broadcast meta
-  const payload = {
-    title, poster: posterURL, time: Date.now(),
-    current: audio.currentTime, quality
-  };
-  ws.send(JSON.stringify({ type: "broadcast-meta", payload }));
-  document.getElementById("status").innerText = "Broadcasting...";
+ws.onopen = () => {
+  ws.send(JSON.stringify({type:"register",role:"broadcaster"}));
+  setStatus("Connected ✅");
 };
 
-audio.ontimeupdate = ()=>{
-  if(ws.readyState===1 && !audio.paused){
-    ws.send(JSON.stringify({
-      type:"broadcast-meta",
-      payload:{
-        title:document.getElementById("title").value,
-        poster:posterURL,
-        time:Date.now(),
-        current:audio.currentTime,
-        quality:parseFloat(document.getElementById("quality").value)
-      }
-    }));
+ws.onmessage = async e => {
+  const msg = JSON.parse(e.data);
+  if(msg.type==="listener-joined"){
+    peerCount++;
+    listenersEl.textContent = "Listeners: " + peerCount;
+    makePeer(msg.id);
+  }
+  if(msg.type==="answer"){
+    const pc = pcs.get(msg.from);
+    if(pc) await pc.setRemoteDescription(msg.payload);
+  }
+  if(msg.type==="candidate"){
+    const pc = pcs.get(msg.from);
+    if(pc) try{ await pc.addIceCandidate(msg.payload);}catch{}
+  }
+  if(msg.type==="peer-left"){
+    peerCount = Math.max(0, peerCount-1);
+    listenersEl.textContent = "Listeners: " + peerCount;
   }
 };
+
+async function startBroadcast(){
+  const file = fileEl.files[0];
+  if(!file) return alert("Select a file first!");
+  const bitrate = parseInt(bitrateEl.value);
+
+  player.src = URL.createObjectURL(file);
+  await player.play();
+
+  localStream = player.captureStream();
+  currentTrack = localStream.getAudioTracks()[0];
+  currentTrack.applyConstraints({ sampleRate:48000, channelCount:2 });
+  changeBtn.disabled = false;
+  setStatus("🎙️ Broadcasting...");
+
+  ws.send(JSON.stringify({type:"meta-update", payload:{ title:titleEl.value || file.name, time:0 }}));
+}
+
+async function makePeer(id){
+  const pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+  pcs.set(id, pc);
+  if(currentTrack) pc.addTrack(currentTrack, localStream);
+  pc.onicecandidate = e=>{
+    if(e.candidate) ws.send(JSON.stringify({type:"candidate",target:id,payload:e.candidate}));
+  };
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({type:"offer",target:id,payload:pc.localDescription}));
+}
+
+setInterval(()=>{
+  if(player && !isNaN(player.currentTime))
+    ws.send(JSON.stringify({type:"meta-update",payload:{title:titleEl.value,time:player.currentTime}}));
+},2000);
+
+startBtn.onclick = startBroadcast;
+changeBtn.onclick = startBroadcast;
 </script>
 </body>
 </html>
