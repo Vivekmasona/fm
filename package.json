@@ -2,10 +2,10 @@
   "name": "fm-websocket-server",
   "version": "1.0.0",
   "description": "Ultra fast FM WebSocket signaling server for live audio streaming on Render.",
-  "main": "server.js",
+  "main": "api/server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node api/server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -21,6 +21,6 @@
     "audio-streaming",
     "render"
   ],
-  "author": "Your Name",
+  "author": "vivek kushwaha",
   "license": "MIT"
 }
