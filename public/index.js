@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>🎧 FM Listener</title>
+<style>
+body{background:#000;color:#0f0;text-align:center;font-family:sans-serif;padding:20px}
+audio{margin-top:10px;width:90%}
+.title{font-size:20px;margin-top:10px}
+</style>
+</head>
+<body>
+<h2>🎧 Live FM Listener</h2>
+<div id="title">Waiting for broadcast...</div>
+<audio id="player" controls autoplay></audio>
+
+<script>
+const WS_URL = location.origin.replace(/^http/, 'ws') + "/ws";
+const socket = new WebSocket(WS_URL);
+const player=document.getElementById("player");
+const titleEl=document.getElementById("title");
+let pc=null;
+
+socket.onopen=()=> socket.send(JSON.stringify({type:"register",role:"listener"}));
+
+socket.onmessage=async e=>{
+  const msg=JSON.parse(e.data);
+  if(msg.type==="offer"){
+    pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+    pc.ontrack=ev=>player.srcObject=ev.streams[0];
+    pc.onicecandidate=e=>{
+      if(e.candidate) socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:e.candidate}));
+    };
+    await pc.setRemoteDescription(msg.payload);
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.send(JSON.stringify({type:"answer",target:msg.from,payload:pc.localDescription}));
+  }
+  if(msg.type==="candidate"&&pc){try{await pc.addIceCandidate(msg.payload);}catch{}}
+  if(msg.type==="control"){
+    const {title,quality}=msg.payload;
+    titleEl.textContent = `${title || "Live FM"} (${quality || "medium"})`;
+  }
+};
+</script>
+</body>
+</html>
