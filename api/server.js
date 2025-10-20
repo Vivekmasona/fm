@@ -1,65 +1,81 @@
-import express from "express";
-import { WebSocketServer } from "ws";
-import http from "http";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
+// server.js
+const express = require("express");
+const http = require("http");
+const { WebSocketServer } = require("ws");
+const crypto = require("crypto");
 
 const app = express();
 
-// 🔹 Serve static files
-app.use(express.static(rootDir));
-
-// 🔹 Routes
-app.get("/", (req, res) => res.sendFile(path.join(rootDir, "index.html")));
-app.get("/dashboard", (req, res) => res.sendFile(path.join(rootDir, "dashboard/index.html")));
+app.get("/", (req, res) => {
+  res.send("🎧 FM WebRTC Signaling Server is Live and Ready!");
+});
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const clients = new Map(); // id -> { ws, role }
 
-wss.on("connection", (ws) => {
+function safeSend(ws, data) {
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(data));
+}
+
+// prevent Render from sleeping connection
+setInterval(() => {
+  for (const [, c] of clients)
+    if (c.ws.readyState === c.ws.OPEN) safeSend(c.ws, { type: "ping" });
+}, 25000);
+
+wss.on("connection", (ws, req) => {
   const id = crypto.randomUUID();
   clients.set(id, { ws });
-  console.log("🔗 Connected:", id);
+  console.log("🔗 Connected:", id, "from", req.socket.remoteAddress);
 
-  ws.on("message", (data) => {
+  ws.on("message", (raw) => {
+    let msg;
     try {
-      const msg = JSON.parse(data.toString());
-      const { type, role, target, payload } = msg;
+      msg = JSON.parse(raw.toString());
+    } catch {
+      console.warn("⚠️ Invalid JSON message");
+      return;
+    }
 
-      if (type === "register") {
-        clients.get(id).role = role;
-        console.log(`🧩 ${id} registered as ${role}`);
-        if (role === "listener") {
-          for (const [pid, c] of clients)
-            if (c.role === "broadcaster")
-              c.ws.send(JSON.stringify({ type: "listener-joined", id }));
-        }
-      }
+    const { type, role, target, payload } = msg;
 
-      if (["offer", "answer", "candidate"].includes(type) && target) {
-        const t = clients.get(target);
-        if (t?.ws?.readyState === 1)
-          t.ws.send(JSON.stringify({ type, from: id, payload }));
+    // 🔹 Client registration
+    if (type === "register") {
+      clients.get(id).role = role;
+      console.log(`🧩 ${id} registered as ${role}`);
+      if (role === "listener") {
+        // Notify all broadcasters that listener joined
+        for (const [, c] of clients)
+          if (c.role === "broadcaster")
+            safeSend(c.ws, { type: "listener-joined", id });
       }
-    } catch (err) {
-      console.error("⚠️ Message parse error:", err);
+    }
+
+    // 🔹 Forward offer/answer/candidate
+    if (["offer", "answer", "candidate"].includes(type) && target) {
+      const targetClient = clients.get(target);
+      if (targetClient) {
+        safeSend(targetClient.ws, { type, from: id, payload });
+      }
     }
   });
 
   ws.on("close", () => {
     clients.delete(id);
     console.log("❌ Disconnected:", id);
-    for (const [pid, c] of clients)
-      if (c.role === "broadcaster")
-        c.ws.send(JSON.stringify({ type: "peer-left", id }));
+    // Inform broadcasters
+    for (const [, c] of clients)
+      if (c.role === "broadcaster") safeSend(c.ws, { type: "peer-left", id });
   });
+
+  ws.on("error", (err) => console.error("WebSocket error:", err.message));
 });
 
+// prevent Render gateway timeout
+server.keepAliveTimeout = 70000;
+server.headersTimeout = 75000;
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`✅ FM server running on :${PORT}`));
+server.listen(PORT, () => console.log(`✅ FM Server running on port ${PORT}`));
