@@ -1,54 +1,77 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>FM Dashboard</title>
-  <style>
-    body { font-family: sans-serif; background: #0b0b0b; color: white; text-align: center; }
-    input, select, button { margin: 8px; padding: 10px; border-radius: 6px; border: none; }
-    .poster { width: 150px; height: 150px; border-radius: 12px; object-fit: cover; }
-  </style>
+<meta charset="UTF-8" />
+<title>FM Control Panel</title>
+<style>
+body { font-family: sans-serif; background:#0f172a; color:#fff; text-align:center; padding:20px; }
+input,select,button { margin:10px; padding:10px; border-radius:10px; border:none; }
+.card { background:#1e293b; display:inline-block; padding:20px; border-radius:20px; box-shadow:0 0 15px #0008; }
+img { width:100px; height:100px; border-radius:15px; object-fit:cover; }
+</style>
 </head>
 <body>
-  <h2>🎧 FM Control Dashboard</h2>
-  <input id="title" placeholder="Song Title"><br>
-  <input id="poster" placeholder="Poster URL"><br>
-  <input id="audio" placeholder="Audio URL"><br>
-  <select id="quality">
-    <option value="low">Low (64kbps)</option>
-    <option value="medium" selected>Medium (128kbps)</option>
-    <option value="high">High (320kbps)</option>
-  </select><br>
-  <button onclick="startSong()">Play</button>
-  <button onclick="pauseSong()">Pause</button>
-  <h4>Status: <span id="status">Idle</span></h4>
-  <img id="preview" class="poster">
+  <div class="card">
+    <h2>🎛️ FM Control Dashboard</h2>
+    <input type="text" id="title" placeholder="Song Title" /><br>
+    <input type="file" id="songFile" accept="audio/*" /><br>
+    <input type="file" id="posterFile" accept="image/*" /><br>
+    <select id="quality">
+      <option value="1.0">High</option>
+      <option value="0.7" selected>Medium</option>
+      <option value="0.4">Low</option>
+    </select><br>
+    <button id="startBtn">▶ Play</button>
+    <audio id="audio" controls style="width:80%;margin-top:10px;"></audio>
+    <div id="status"></div>
+  </div>
 
-  <script>
-    const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
-    const ws = new WebSocket(WS_URL);
+<script>
+const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const ws = new WebSocket(WS);
+let audio = document.getElementById("audio");
+let posterURL = null;
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
-      document.getElementById("status").innerText = "Connected";
-    };
+ws.onopen = ()=> console.log("✅ WS Connected");
 
-    function broadcast(data) {
-      ws.send(JSON.stringify({ type: "broadcast", ...data }));
-    }
+document.getElementById("posterFile").onchange = e=>{
+  const f = e.target.files[0];
+  if(f) posterURL = URL.createObjectURL(f);
+}
 
-    function startSong() {
-      const title = document.getElementById("title").value;
-      const poster = document.getElementById("poster").value;
-      const audio = document.getElementById("audio").value;
-      const quality = document.getElementById("quality").value;
-      document.getElementById("preview").src = poster;
-      broadcast({ subtype: "play", title, poster, audio, quality });
-    }
+document.getElementById("startBtn").onclick = ()=>{
+  const file = document.getElementById("songFile").files[0];
+  if(!file) return alert("Select a song file");
+  const quality = parseFloat(document.getElementById("quality").value);
+  const title = document.getElementById("title").value || file.name;
+  const url = URL.createObjectURL(file);
+  audio.src = url;
+  audio.playbackRate = 1;
+  audio.play();
 
-    function pauseSong() {
-      broadcast({ subtype: "pause" });
-    }
-  </script>
+  // broadcast meta
+  const payload = {
+    title, poster: posterURL, time: Date.now(),
+    current: audio.currentTime, quality
+  };
+  ws.send(JSON.stringify({ type: "broadcast-meta", payload }));
+  document.getElementById("status").innerText = "Broadcasting...";
+};
+
+audio.ontimeupdate = ()=>{
+  if(ws.readyState===1 && !audio.paused){
+    ws.send(JSON.stringify({
+      type:"broadcast-meta",
+      payload:{
+        title:document.getElementById("title").value,
+        poster:posterURL,
+        time:Date.now(),
+        current:audio.currentTime,
+        quality:parseFloat(document.getElementById("quality").value)
+      }
+    }));
+  }
+};
+</script>
 </body>
 </html>
