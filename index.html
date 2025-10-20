@@ -1,51 +1,53 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8" />
-<title>FM Listener</title>
+<meta charset="utf-8" />
+<title>🎶 FM Live</title>
 <style>
-body{background:#020617;color:#fff;text-align:center;font-family:sans-serif;overflow:hidden;}
-.player{margin-top:80px;}
-.poster{width:180px;height:180px;border-radius:50%;object-fit:cover;animation:spin 10s linear infinite;}
-@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-.title{font-size:1.2em;margin:15px;}
-progress{width:70%;height:8px;border-radius:4px;background:#334155;}
+body{background:#000;color:#0f0;text-align:center;font-family:sans-serif;}
+h2{margin-top:20px}
+#meta{margin-top:10px;font-size:20px;}
+audio{width:90%;margin-top:15px;}
 </style>
 </head>
 <body>
-<div class="player">
-  <img id="poster" class="poster" src="" hidden>
-  <div class="title" id="title">Waiting for broadcast...</div>
-  <audio id="audio"></audio>
-  <progress id="bar" value="0" max="100"></progress>
-</div>
+<h2>🔴 Live FM</h2>
+<div id="meta">⏳ Waiting...</div>
+<audio id="player" autoplay controls></audio>
 
 <script>
-const WS = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+const WS = location.origin.replace(/^http/, "ws");
 const ws = new WebSocket(WS);
-let audio = document.getElementById("audio");
-let bar = document.getElementById("bar");
-let title = document.getElementById("title");
-let poster = document.getElementById("poster");
+const player = document.getElementById("player");
+const meta = document.getElementById("meta");
+let pc = null;
 
-ws.onmessage = (msg)=>{
-  const data = JSON.parse(msg.data);
-  if(data.type === "meta-update"){
-    const m = data.payload;
-    if(m.poster){ poster.src = m.poster; poster.hidden = false; }
-    title.innerText = m.title || "Live Song";
-    if(!audio.src){
-      audio.src = m.poster ? m.poster : ""; // placeholder
-    }
-    const delay = (Date.now() - m.time) / 1000;
-    audio.currentTime = m.current + delay;
-    audio.volume = m.quality || 1;
-    audio.play().catch(()=>{});
+ws.onopen = () => ws.send(JSON.stringify({type:"register",role:"listener"}));
+
+ws.onmessage = async e => {
+  const msg = JSON.parse(e.data);
+
+  if(msg.type==="offer"){
+    pc = new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+    pc.ontrack = ev => player.srcObject = ev.streams[0];
+    pc.onicecandidate = e=>{
+      if(e.candidate) ws.send(JSON.stringify({type:"candidate",target:msg.from,payload:e.candidate}));
+    };
+    await pc.setRemoteDescription(msg.payload);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    ws.send(JSON.stringify({type:"answer",target:msg.from,payload:pc.localDescription}));
   }
-};
 
-audio.ontimeupdate = ()=>{
-  bar.value = (audio.currentTime / (audio.duration||1)) * 100;
+  if(msg.type==="candidate" && pc){
+    try{await pc.addIceCandidate(msg.payload);}catch{}
+  }
+
+  if(msg.type==="meta-update"){
+    const { title, time } = msg.payload;
+    const mins = Math.floor(time/60), secs = Math.floor(time%60).toString().padStart(2,'0');
+    meta.innerHTML = `🎵 ${title || 'Untitled'} <br> 🔴 Live • ${mins}:${secs}`;
+  }
 };
 </script>
 </body>
