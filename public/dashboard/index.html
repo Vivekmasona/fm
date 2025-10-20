@@ -2,66 +2,60 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>FM Dashboard</title>
+  <title>🎚️ FM Control Room</title>
   <style>
     body { font-family: sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
-    input, select, button { margin: 10px; padding: 8px; }
+    input, select, button { margin: 10px; padding: 8px; border-radius: 5px; }
   </style>
 </head>
 <body>
-  <h1>🎚️ FM Control Room</h1>
-  <div>Listeners connected: <span id="count">0</span></div>
+  <h1>🎚️ FM Dashboard</h1>
+  <p>Listeners connected: <span id="count">0</span></p>
 
-  <input type="text" id="title" placeholder="Song title..." />
-  <input type="file" id="file" accept="audio/*" />
+  <input id="title" type="text" placeholder="Song title..." />
+  <input id="file" type="file" accept="audio/*" />
   <select id="quality">
     <option value="low">Low (64kbps)</option>
     <option value="medium" selected>Medium (128kbps)</option>
     <option value="high">High (256kbps)</option>
   </select>
   <button id="start">Start Stream</button>
+
   <audio id="player" controls></audio>
 
   <script>
-    const ws = new WebSocket(location.origin.replace(/^http/, 'ws'));
-    const player = document.getElementById('player');
-    const titleInput = document.getElementById('title');
-    const fileInput = document.getElementById('file');
-    const qualitySelect = document.getElementById('quality');
-    const count = document.getElementById('count');
+    const ws = new WebSocket(location.origin.replace(/^http/, "ws"));
+    const count = document.getElementById("count");
+    const title = document.getElementById("title");
+    const quality = document.getElementById("quality");
+    const fileInput = document.getElementById("file");
+    const player = document.getElementById("player");
 
     ws.onopen = () => ws.send(JSON.stringify({ type: "broadcaster" }));
-    ws.onmessage = e => {
+    ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
       if (data.type === "count") count.textContent = data.count;
     };
 
-    let streamInterval;
-
-    document.getElementById('start').onclick = () => {
+    document.getElementById("start").onclick = () => {
       const file = fileInput.files[0];
-      if (!file) return alert("Select a file first!");
+      if (!file) return alert("Please select a song first!");
 
       const reader = new FileReader();
-      reader.onload = e => {
-        const arrayBuffer = e.target.result;
-        const audioCtx = new (window.AudioContext || webkitAudioContext)();
-        audioCtx.decodeAudioData(arrayBuffer).then(buffer => {
-          const source = audioCtx.createBufferSource();
-          source.buffer = buffer;
+      reader.onload = () => {
+        const arrayBuffer = reader.result;
+        const ctx = new AudioContext();
+        ctx.decodeAudioData(arrayBuffer).then(buffer => {
+          const src = ctx.createBufferSource();
+          src.buffer = buffer;
+          src.connect(ctx.destination);
 
-          // quality control via playbackRate (simulate bitrate control)
-          const quality = qualitySelect.value;
-          source.playbackRate.value = quality === "low" ? 0.7 : quality === "high" ? 1.3 : 1;
+          // quality change = playback rate change
+          const q = quality.value;
+          src.playbackRate.value = q === "low" ? 0.7 : q === "high" ? 1.3 : 1.0;
 
-          source.connect(audioCtx.destination);
-          source.start(0);
-
-          ws.send(JSON.stringify({
-            type: "meta",
-            title: titleInput.value || "Untitled",
-            quality
-          }));
+          ws.send(JSON.stringify({ type: "meta", title: title.value || "Untitled", quality: q }));
+          src.start();
         });
       };
       reader.readAsArrayBuffer(file);
