@@ -1,53 +1,48 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>FM Listener</title>
-  <style>
-    body { font-family: sans-serif; background:#111; color:#fff; text-align:center; }
-    h1 { color: #4af; }
-    audio { width: 90%; margin-top: 20px; }
-    .title { font-size: 1.2rem; margin-top: 10px; }
-  </style>
+<meta charset="utf-8"/>
+<title>🎧 FM Listener</title>
+<style>
+body{background:#000;color:#0f0;text-align:center;font-family:sans-serif;padding:20px}
+audio{margin-top:10px;width:90%}
+.title{font-size:20px;margin-top:10px}
+</style>
 </head>
 <body>
-  <h1>🎧 Live FM Listener</h1>
-  <div class="title" id="title">Waiting for broadcast...</div>
-  <audio id="player" controls autoplay></audio>
+<h2>🎧 Live FM Listener</h2>
+<div id="title">Waiting for broadcast...</div>
+<audio id="player" controls autoplay></audio>
+<div id="status"></div>
 
-  <script>
-    const socket = new WebSocket(
-      (location.protocol === "https:" ? "wss://" : "ws://") + location.host
-    );
+<script>
+const WS_URL = location.origin.replace(/^http/, 'ws') + "/ws";
+const socket = new WebSocket(WS_URL);
+const player=document.getElementById("player");
+const titleEl=document.getElementById("title");
+let pc=null;
 
-    const audio = document.getElementById("player");
-    const titleEl = document.getElementById("title");
+socket.onopen=()=> socket.send(JSON.stringify({type:"register",role:"listener"}));
 
-    let source = null;
-    let ctx = null;
-
-    socket.onopen = () => {
-      socket.send(JSON.stringify({ type: "register", role: "listener" }));
+socket.onmessage=async e=>{
+  const msg=JSON.parse(e.data);
+  if(msg.type==="offer"){
+    pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+    pc.ontrack=ev=>player.srcObject=ev.streams[0];
+    pc.onicecandidate=e=>{
+      if(e.candidate) socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:e.candidate}));
     };
-
-    socket.onmessage = async (e) => {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "stream-chunk") {
-        if (!ctx) {
-          ctx = new (window.AudioContext || window.webkitAudioContext)();
-          source = ctx.createBufferSource();
-        }
-      }
-      if (msg.type === "audio-update") {
-        titleEl.textContent = msg.title || "Untitled Stream";
-        const blob = new Blob([Uint8Array.from(atob(msg.chunk), c => c.charCodeAt(0))], { type: "audio/webm" });
-        const url = URL.createObjectURL(blob);
-        audio.src = url;
-      }
-      if (msg.type === "meta") {
-        titleEl.textContent = msg.title;
-      }
-    };
-  </script>
+    await pc.setRemoteDescription(msg.payload);
+    const answer=await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.send(JSON.stringify({type:"answer",target:msg.from,payload:pc.localDescription}));
+  }
+  if(msg.type==="candidate"&&pc){try{await pc.addIceCandidate(msg.payload);}catch{}}
+  if(msg.type==="control"){
+    const {title,quality}=msg.payload;
+    titleEl.textContent = `${title || "Live FM"} (${quality || "medium"})`;
+  }
+};
+</script>
 </body>
 </html>
