@@ -1,13 +1,30 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.use(express.static("public")); // optional if static served
+
+// Serve static files from "public"
+const publicPath = path.join(__dirname, "../public");
+app.use(express.static(publicPath));
+
+// ✅ Route for dashboard (optional direct link)
+app.get("/dashboard", (req, res) => {
+  res.sendFile(path.join(publicPath, "dashboard/index.html"));
+});
+
+// ✅ Default listener page
+app.get("/", (req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"));
+});
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: "/ws" });
 
+// Store all clients
 const clients = new Map();
 
 function broadcastTo(role, data) {
@@ -25,18 +42,15 @@ wss.on("connection", (ws) => {
   ws.on("message", (msg) => {
     try {
       const data = JSON.parse(msg);
-
       if (data.type === "register") {
         clients.get(id).role = data.role;
-        console.log("🔗 Registered", id, data.role);
         if (data.role === "listener") {
-          // notify broadcaster
           broadcastTo("broadcaster", { type: "listener-joined", id });
         }
         return;
       }
 
-      // Forward signaling messages
+      // Forward signaling
       if (["offer", "answer", "candidate"].includes(data.type)) {
         const target = clients.get(data.target);
         if (target?.ws?.readyState === 1) {
@@ -45,13 +59,13 @@ wss.on("connection", (ws) => {
         return;
       }
 
-      // 🟢 Broadcast control (title, quality, etc.)
+      // Broadcast control updates (title + quality)
       if (data.type === "broadcast-control") {
         broadcastTo("listener", { type: "control", payload: data.payload });
       }
 
     } catch (err) {
-      console.error("WS message error:", err);
+      console.error("WS error:", err);
     }
   });
 
@@ -64,11 +78,5 @@ wss.on("connection", (ws) => {
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("🎧 FM WebSocket server is running.");
-});
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log("✅ Server ready on port", PORT)
-);
+server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
