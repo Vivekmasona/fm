@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>🎙️ FM Dashboard</title>
+<style>
+  body{background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:20px;}
+  input,button{margin:10px;padding:10px;border-radius:10px;border:none;font-weight:bold;}
+  audio{margin-top:20px;width:90%;border-radius:10px;}
+</style>
+</head>
+<body>
+<h2>🎙️ FM Control Panel</h2>
+<input type="file" id="fileInput" accept="audio/*" />
+<audio id="player" controls muted></audio>
+
+<script>
+const ws = new WebSocket("wss://fmconnector.onrender.com");
+let pc, stream, title = "";
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
+  console.log("✅ Connected to server");
+};
+
+document.getElementById("fileInput").onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  title = file.name;
+  const audio = document.getElementById("player");
+  audio.src = URL.createObjectURL(file);
+  await audio.play();
+  await new Promise(r => setTimeout(r, 200));
+  stream = audio.captureStream();
+  pc = new RTCPeerConnection();
+  stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+  pc.onicecandidate = ev => {
+    if (ev.candidate)
+      ws.send(JSON.stringify({ type: "candidate", payload: ev.candidate }));
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({ type: "offer", payload: offer }));
+
+  // send sync updates every 2s
+  setInterval(() => {
+    ws.send(JSON.stringify({ type: "sync", time: audio.currentTime, title }));
+  }, 2000);
+};
+
+ws.onmessage = async (e) => {
+  const msg = JSON.parse(e.data);
+  if (msg.type === "answer") {
+    await pc.setRemoteDescription(msg.payload);
+  }
+  if (msg.type === "candidate") {
+    await pc.addIceCandidate(msg.payload);
+  }
+};
+</script>
+</body>
+</html>
