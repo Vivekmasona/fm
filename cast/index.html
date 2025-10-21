@@ -1,407 +1,397 @@
 <!doctype html>
-
-
+<html lang="en">
+<head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#00ffcc">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="application-name" content="Bihar FM 007">
-<meta name="apple-mobile-web-app-title" content="Bihar FM 007">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bihar FM Studio</title>
 
+<!-- ✅ Fast Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
 <style>
 :root {
-  --accent: #00ffcc;
-  --bg1: #080808;
-  --bg2: #121212;
-  --grad: linear-gradient(135deg, #00ffcc, #0077ff);
+  --bg: #0a0a0a;
+  --accent: #ff2b2b;
+  --text: #f1f1f1;
+  --green: #00ff80;
+  --red: #ff4040;
 }
-body {
-  margin: 0;
-  padding: 25px;
-  font-family: "Segoe UI", sans-serif;
-  background: var(--bg1);
-  color: #fff;
-  text-align: center;
-}
-h1 {
-  font-size: 26px;
-  background: var(--grad);
-  -webkit-background-clip: text;
-  color: transparent;
-  margin-bottom: 15px;
-}
-button, select {
-  padding: 10px 14px;
-  margin: 6px;
-  border-radius: 8px;
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-  transition: 0.2s;
-}
-button { background: var(--grad); color: #fff; }
-button:hover { opacity: 0.85; }
-button:disabled { background: #333; color: #777; cursor: not-allowed; }
-select { background: #111; color: #fff; border: 1px solid #00ffcc55; }
 
-#broadcastBtn {
-  margin: 20px auto;
-  width: 70px;
-  height: 70px;
-  border-radius: 50%;
-  background: #222;
-  border: 2px solid var(--accent);
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Poppins", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ===== HEADER ===== */
+header {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%;
+  height: 60px;
+  background: #111;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-weight: 600;
+  font-size: 1.4rem;
+  letter-spacing: 1px;
   color: var(--accent);
+  box-shadow: 0 2px 10px #000;
+  z-index: 20;
+}
+#statusDot {
+  position: absolute;
+  right: 1rem;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 10px var(--red);
+  transition: all 0.3s ease;
+}
+#statusDot.loading::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* ===== FOOTER ===== */
+footer {
+  position: fixed;
+  bottom: 0; left: 0;
+  width: 100%;
+  height: 70px;
+  background: #111;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  box-shadow: 0 -2px 10px #000;
+  z-index: 20;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  position: fixed;
+  top: 60px;
+  bottom: 70px;
+  left: 0;
+  width: 90px;
+  background: #141414;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  box-shadow: inset -1px 0 10px #000;
+}
+
+.sidebar button {
+  background: #1f1f1f;
+  border: none;
+  color: var(--text);
+  font-size: 1.4rem;
+  width: 55px;
+  height: 55px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.sidebar button:hover { background: var(--accent); color: #fff; }
+
+.sidebar input[type="range"] {
+  writing-mode: bt-lr;
+  -webkit-appearance: slider-vertical;
+  height: 100px;
+  width: 6px;
+  accent-color: var(--accent);
+}
+
+/* ===== MAIN LIST ===== */
+main {
+  position: absolute;
+  top: 60px;
+  bottom: 70px;
+  left: 90px;
+  right: 0;
+  overflow-y: auto;
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.song {
+  background: #161616;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: 0.3s;
+  overflow: hidden;
+}
+.song.active { background: #1f1f1f; border-left: 3px solid var(--accent); }
+.song:hover { background: #222; transform: scale(1.01); }
+
+.cover {
+  width: 45px;
+  height: 45px;
+  border-radius: 6px;
+  background: #222 center/cover no-repeat;
+  flex-shrink: 0;
+}
+
+.meta {
+  flex: 1;
+  overflow: hidden;
+}
+.title {
+  font-weight: 500;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.artist {
+  font-size: 0.8rem;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-badge {
+  background: var(--accent);
+  color: #fff;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ===== FOOTER ICONS ===== */
+.icon-btn {
+  background: #1a1a1a;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 1.3rem;
+  transition: 0.3s;
+}
+.icon-btn:hover { background: var(--accent); color: #fff; }
+
+.live-btn {
+  background: #444;
+  width: 75px;
+  height: 75px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.8rem;
+  cursor: pointer;
   position: relative;
   transition: 0.3s;
 }
-#broadcastBtn.active { background: #0f0; color: #000; animation: pulse 1.5s infinite; }
-#broadcastBtn.inactive { background: #f00; color: #fff; }
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 rgba(0,255,128,0.6); }
-  70% { box-shadow: 0 0 0 20px rgba(0,255,128,0); }
-  100% { box-shadow: 0 0 0 0 rgba(0,255,128,0); }
+.live-btn.active {
+  background: var(--accent);
+  box-shadow: 0 0 15px rgba(255, 43, 43, 0.7);
 }
-
-#playlist {
-  background: #101010;
-  width: 90%;
-  max-width: 450px;
-  margin: 15px auto;
-  padding: 10px;
-  border-radius: 12px;
-  box-shadow: 0 0 10px #00ffcc33;
-  text-align: left;
-  max-height: 120px; /* Show only 2 songs */
-  overflow-y: auto;
-}
-.song {
-  display: flex;
-  align-items: center;
-  padding: 6px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  margin: 4px 0;
-  background: #181818;
-  transition: 0.2s;
-}
-.song:hover { background: #00ffcc22; }
-.song.active { background: var(--grad); color: #000; }
-.song img {
-  width: 45px; height: 45px; border-radius: 6px; margin-right: 10px;
-  object-fit: cover;
-}
-
-.file-label {
-  background: #111;
-  padding: 10px 14px;
-  border-radius: 8px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #00ffcc55;
-}
-.file-label:hover { background: #1a1a1a; }
-
-#audioBtns {
-  margin-top: 15px;
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-}
-.audio-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: 24px;
-  cursor: pointer;
-}
-.audio-btn:hover { color: #0f0; }
-
-#seekContainer {
-  width: 80%;
-  max-width: 400px;
-  margin: 15px auto;
-}
-#seekBar {
+.live-btn.active::before {
+  content: "";
+  position: absolute;
   width: 100%;
-  accent-color: var(--accent);
-  height: 6px;
-  cursor: pointer;
-  border-radius: 4px;
-  background: #222;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(255, 43, 43, 0.4);
+  animation: ripple 1.6s infinite;
 }
-#status { margin-top: 15px; font-weight: bold; }
-#listeners { margin-top: 5px; color: #aaa; }
+@keyframes ripple {
+  0% {transform: scale(1); opacity: 1;}
+  100% {transform: scale(2); opacity: 0;}
+}
 
-#audio { display: none; }
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:600px){
+  .sidebar { width: 70px; }
+  main { left: 70px; }
+  .live-btn { width: 65px; height: 65px; }
+}
 </style>
+</head>
 
+<body>
+  <header>
+    Bihar FM Studio
+    <div id="statusDot"></div>
+  </header>
 
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <button id="playPause"><i class="fa-solid fa-play"></i></button>
+    <input type="range" id="seek" min="0" max="100" value="0">
+    <input type="range" id="volume" min="0" max="1" step="0.01" value="0.7">
+    <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1">
+  </div>
 
-<h1>🎧 Bihar FM 007 | Pro Broadcast</h1>
+  <!-- Main Playlist -->
+  <main id="playlist"></main>
 
-<label for="file" class="file-label"><i class="fa-solid fa-file-audio"></i> Select Songs</label>
-<input id="file" type="file" accept="audio/*" multiple hidden />
+  <!-- Footer -->
+  <footer>
+    <label for="file" class="icon-btn" title="Upload Songs"><i class="fa-solid fa-upload"></i></label>
+    <input id="file" type="file" accept="audio/*" multiple hidden>
+    <div class="live-btn" id="goLive"><i class="fa-solid fa-broadcast-tower"></i></div>
+    <div class="icon-btn" id="micBtn" title="Mic"><i class="fa-solid fa-microphone"></i></div>
+    <div class="icon-btn" id="reconnectBtn" title="Reconnect"><i class="fa-solid fa-rotate-right"></i></div>
+  </footer>
 
-<br />
-<button id="change" disabled><i class="fa-solid fa-music"></i> Change Song</button>
-<button id="micToggle" disabled><i class="fa-solid fa-microphone"></i> Mic</button>
-<select id="quality">
-  <option value="32000" />Low
-  <option value="64000" selected />Medium
-  <option value="128000" />High
-  <option value="192000" />Ultra
-</select>
-
-<div id="broadcastBtn" class="inactive"><i class="fa-solid fa-wifi"></i></div>
-
-<div id="playlist"></div>
-
-<div id="seekContainer">
-  <input type="range" id="seekBar" value="0" min="0" max="100" step="0.1" />
-</div>
-
-<div id="audioBtns">
-  <button id="prev" class="audio-btn"><i class="fa-solid fa-backward"></i></button>
-  <button id="playPause" class="audio-btn"><i class="fa-solid fa-play"></i></button>
-  <button id="repeat" class="audio-btn"><i class="fa-solid fa-repeat"></i></button>
-  <button id="next" class="audio-btn"><i class="fa-solid fa-forward"></i></button>
-</div>
-
-<div id="status">Connecting...</div>
-<div id="listeners">Listeners: 0</div>
-<audio id="player"></audio>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 <script>
-const WS = "wss://fmconnector.onrender.com";
-const socket = new WebSocket(WS);
-
+const socket = new WebSocket("wss://fmconnector.onrender.com");
 const fileEl = document.getElementById("file");
-const player = document.getElementById("player");
 const playlistEl = document.getElementById("playlist");
-const statusEl = document.getElementById("status");
-const countEl = document.getElementById("listeners");
-const micBtn = document.getElementById("micToggle");
-const broadcastBtn = document.getElementById("broadcastBtn");
-const qualitySel = document.getElementById("quality");
-const playPause = document.getElementById("playPause");
-const nextBtn = document.getElementById("next");
-const prevBtn = document.getElementById("prev");
-const repeatBtn = document.getElementById("repeat");
-const seekBar = document.getElementById("seekBar");
+const playBtn = document.getElementById("playPause");
+const statusDot = document.getElementById("statusDot");
+const reconnectBtn = document.getElementById("reconnectBtn");
+const goLive = document.getElementById("goLive");
+const seek = document.getElementById("seek");
+const volume = document.getElementById("volume");
+const speed = document.getElementById("speed");
 
-let pcs = new Map();
-let localStream = null;
-let currentTrack = null;
-let micStream = null;
-let micEnabled = false;
-let peerCount = 0;
-let currentBitrate = 64000;
+const player = new Audio();
 let playlist = [];
 let index = 0;
-let repeat = false;
 let playing = false;
 
-// ✅ WebSocket setup
-socket.onopen = () => {
-  socket.send(JSON.stringify({ type: "register", role: "broadcaster" }));
-  setStatus("Connected ✅");
-};
-socket.onmessage = async (e) => {
-  const msg = JSON.parse(e.data);
-  if (msg.type === "listener-joined") {
-    peerCount++;
-    countEl.textContent = "Listeners: " + peerCount;
-    makePeer(msg.id);
-  }
-  if (msg.type === "answer") {
-    const pc = pcs.get(msg.from);
-    if (pc) await pc.setRemoteDescription(msg.payload);
-  }
-  if (msg.type === "candidate") {
-    const pc = pcs.get(msg.from);
-    if (pc) try { await pc.addIceCandidate(msg.payload); } catch {}
-  }
-  if (msg.type === "peer-left") {
-    peerCount = Math.max(0, peerCount - 1);
-    countEl.textContent = "Listeners: " + peerCount;
-  }
-};
-function setStatus(msg, ok = true) {
-  statusEl.textContent = msg;
-  statusEl.style.color = ok ? "#0f0" : "#f33";
-}
-
-// ✅ Broadcast toggle
-broadcastBtn.onclick = async () => {
-  if (broadcastBtn.classList.contains("inactive")) {
-    broadcastBtn.classList.remove("inactive");
-    broadcastBtn.classList.add("active");
-    startBroadcast();
+// ===== SOCKET STATUS DOT =====
+socket.onopen = () => setConnected(true);
+socket.onclose = () => setConnected(false);
+function setConnected(state){
+  if(state){
+    statusDot.classList.remove("loading");
+    statusDot.style.background = "var(--green)";
+    statusDot.style.boxShadow = "0 0 10px var(--green)";
   } else {
-    broadcastBtn.classList.remove("active");
-    broadcastBtn.classList.add("inactive");
-    stopBroadcast();
+    statusDot.classList.add("loading");
+    statusDot.style.background = "var(--red)";
+    statusDot.style.boxShadow = "0 0 10px var(--red)";
   }
+}
+reconnectBtn.onclick = () => {
+  setConnected(false);
+  setTimeout(()=>setConnected(true),1500);
 };
 
-async function startBroadcast() {
-  if (!playlist.length) return alert("Select songs first!");
-  index = 0;
-  await playSong(index);
-  micBtn.disabled = false;
-  document.getElementById("change").disabled = false;
-  setStatus("🎵 Broadcasting started");
-}
-function stopBroadcast() {
-  pcs.forEach(pc => pc.close());
-  pcs.clear();
-  peerCount = 0;
-  countEl.textContent = "Listeners: 0";
-  setStatus("🛑 Broadcast stopped", false);
-}
-
-// ✅ Playlist
+// ===== UPLOAD SONGS + META =====
 fileEl.onchange = () => {
   playlist = Array.from(fileEl.files);
   playlistEl.innerHTML = "";
-  playlist.forEach((f, i) => {
+  playlist.forEach((file, i)=>{
     const div = document.createElement("div");
     div.className = "song";
-    div.innerHTML = `<img src="https://cdn-icons-png.flaticon.com/512/727/727245.png"><div>${f.name}</div>`;
-    div.onclick = () => playSong(i);
+    const cover = document.createElement("div");
+    cover.className = "cover";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const title = document.createElement("div");
+    title.className = "title";
+    const artist = document.createElement("div");
+    artist.className = "artist";
+
+    title.textContent = file.name.replace(/\.[^/.]+$/, "");
+    artist.textContent = "Unknown Artist";
+    meta.appendChild(title);
+    meta.appendChild(artist);
+    div.appendChild(cover);
+    div.appendChild(meta);
+    div.onclick = ()=>playSong(i);
     playlistEl.appendChild(div);
+
+    // Extract tags
+    jsmediatags.read(file, {
+      onSuccess: tag => {
+        const t = tag.tags;
+        title.textContent = t.title || file.name;
+        artist.textContent = t.artist || "Unknown Artist";
+        if(t.picture){
+          const data = t.picture.data;
+          const format = t.picture.format;
+          let base64 = "";
+          for(let j=0;j<data.length;j++) base64 += String.fromCharCode(data[j]);
+          cover.style.backgroundImage = `url(data:${format};base64,${btoa(base64)})`;
+        }
+      },
+      onError: err => console.log(err)
+    });
   });
 };
 
-// ✅ Playback controls
-playPause.onclick = async () => {
-  if (playing) { player.pause(); playing = false; }
-  else { await player.play(); playing = true; }
-  playPause.innerHTML = playing ? `<i class="fa-solid fa-pause"></i>` : `<i class="fa-solid fa-play"></i>`;
-};
-nextBtn.onclick = () => { if (index + 1 < playlist.length) playSong(++index); };
-prevBtn.onclick = () => { if (index > 0) playSong(--index); };
-repeatBtn.onclick = () => {
-  repeat = !repeat;
-  repeatBtn.style.color = repeat ? "#0f0" : "#00ffcc";
+// ===== PLAY / PAUSE =====
+playBtn.onclick = ()=>{
+  if(!player.src) return;
+  if(player.paused){ player.play(); playing=true; playBtn.innerHTML='<i class="fa-solid fa-pause"></i>'; }
+  else { player.pause(); playing=false; playBtn.innerHTML='<i class="fa-solid fa-play"></i>'; }
 };
 
-// ✅ Play song
-async function playSong(i) {
+// ===== SONG PLAY =====
+async function playSong(i){
   index = i;
   const file = playlist[i];
   player.src = URL.createObjectURL(file);
   await player.play();
-  playing = true;
-  playPause.innerHTML = `<i class="fa-solid fa-pause"></i>`;
-
-  document.querySelectorAll(".song").forEach(e => e.classList.remove("active"));
+  playing=true;
+  playBtn.innerHTML='<i class="fa-solid fa-pause"></i>';
+  document.querySelectorAll(".song").forEach(s=>s.classList.remove("active"));
   playlistEl.children[i].classList.add("active");
-
-  const stream = player.captureStream();
-  localStream = stream;
-  currentTrack = stream.getAudioTracks()[0];
-  updateAllPeersTrack();
+  updateLiveBadge(i);
+}
+function updateLiveBadge(i){
+  document.querySelectorAll(".song .live-badge").forEach(e=>e.remove());
+  const live = document.createElement("div");
+  live.className="live-badge";
+  live.textContent="LIVE";
+  playlistEl.children[i].appendChild(live);
 }
 
-// ✅ Seek bar update
-player.ontimeupdate = () => {
-  if (!isNaN(player.duration)) {
-    seekBar.value = (player.currentTime / player.duration) * 100;
-  }
+// ===== CONTROLS =====
+player.ontimeupdate = ()=>{ seek.value = (player.currentTime/player.duration)*100 || 0; };
+seek.oninput = ()=>{ player.currentTime = (seek.value/100)*player.duration; };
+volume.oninput = ()=>{ player.volume = volume.value; };
+speed.oninput = ()=>{ player.playbackRate = speed.value; };
+
+// ===== GO LIVE =====
+goLive.onclick = ()=>{
+  goLive.classList.toggle("active");
 };
-seekBar.oninput = () => {
-  if (!isNaN(player.duration)) {
-    player.currentTime = (seekBar.value / 100) * player.duration;
-  }
-};
-player.onended = () => {
-  if (repeat) playSong(index);
-  else if (index + 1 < playlist.length)
-    setTimeout(() => playSong(index + 1), 1000);
-};
-
-// ✅ Mic Mixing
-async function toggleMic() {
-  if (!micEnabled) {
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ctx = new AudioContext();
-      const dest = ctx.createMediaStreamDestination();
-      const music = ctx.createMediaStreamSource(localStream);
-      const mic = ctx.createMediaStreamSource(micStream);
-      const g1 = ctx.createGain(), g2 = ctx.createGain();
-      g1.gain.value = 0.1; g2.gain.value = 0.9;
-      music.connect(g1).connect(dest);
-      mic.connect(g2).connect(dest);
-      localStream = dest.stream;
-      currentTrack = localStream.getAudioTracks()[0];
-      await updateAllPeersTrack();
-      micEnabled = true;
-      micBtn.innerHTML = "🔇 Mic Off";
-      setStatus("🎤 Mic ON (90% voice / 10% music)");
-    } catch(e) { setStatus("Mic access denied", false); }
-  } else {
-    micStream.getTracks().forEach(t=>t.stop());
-    const ctx = new AudioContext();
-    const dest = ctx.createMediaStreamDestination();
-    const src = ctx.createMediaStreamSource(player.captureStream());
-    src.connect(dest);
-    localStream = dest.stream;
-    currentTrack = localStream.getAudioTracks()[0];
-    await updateAllPeersTrack();
-    micEnabled = false;
-    micBtn.innerHTML = "🎙️ Mic";
-    setStatus("🎵 Full music mode");
-  }
-}
-micBtn.onclick = toggleMic;
-
-// ✅ Quality control
-qualitySel.onchange = e => updateAudioQuality(e.target.value);
-async function updateAudioQuality(bitrate) {
-  currentBitrate = bitrate;
-  for (const pc of pcs.values()) {
-    const s = pc.getSenders().find(x => x.track?.kind === "audio");
-    if (!s) continue;
-    const p = s.getParameters();
-    if (!p.encodings) p.encodings = [{}];
-    p.encodings[0].maxBitrate = parseInt(bitrate);
-    await s.setParameters(p);
-  }
-  setStatus(`🎚 Audio quality: ${bitrate/1000} kbps`);
-}
-
-// ✅ Peer functions
-async function updateAllPeersTrack() {
-  for (const pc of pcs.values()) {
-    const s = pc.getSenders().find(x => x.track?.kind === "audio");
-    if (s) await s.replaceTrack(currentTrack);
-  }
-}
-async function makePeer(id) {
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-  pcs.set(id, pc);
-  if (currentTrack) pc.addTrack(currentTrack, localStream);
-  pc.onicecandidate = e => {
-    if (e.candidate)
-      socket.send(JSON.stringify({ type:"candidate", target:id, payload:e.candidate }));
-  };
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  socket.send(JSON.stringify({ type:"offer", target:id, payload:pc.localDescription }));
-}
 </script>
-
-</!doctype>
+</body>
+</html>
