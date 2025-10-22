@@ -220,17 +220,17 @@ setInterval(()=>{
 
 function connectWS(){
   const socket=new WebSocket(WS_URL);
-  connText.textContent="Connectingâ€¦";
+  connText.textContent="Connecting";
 
   socket.onopen=()=>{
     socket.send(JSON.stringify({type:"register",role:"listener"}));
-    connText.textContent="Waiting for streamâ€¦";
+    connText.textContent="Waiting for stream¦";
   };
 
   socket.onmessage=async e=>{
     const msg=JSON.parse(e.data);
     if(msg.type==="offer"){
-      connText.textContent="Connecting Streamâ€¦";
+      connText.textContent="Connecting Stream¦";
       pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
       pc.ontrack=ev=>{
         player.srcObject=ev.streams[0];
@@ -261,7 +261,7 @@ function connectWS(){
 }
 
 function handleDisconnect(){
-  connText.textContent="Reconnectingâ€¦";
+  connText.textContent="Reconnecting";
   if(pc){pc.close();pc=null;}
   if(reconnectTimeout)clearTimeout(reconnectTimeout);
   reconnectTimeout=setTimeout(connectWS,3000);
@@ -288,8 +288,8 @@ player.addEventListener("play",()=>{
 });
 
 /* Share + Chat */
-document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"ðŸŽ§ Listen now",url:location.href});};
-document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=ðŸŽ§ Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
+document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:" Listen now",url:location.href});};
+document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
 
 /* Initial connect */
 connectWS();
