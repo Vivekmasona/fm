@@ -130,9 +130,9 @@ header{
   width:100%;
   height:100%;
   object-fit:cover;
-  transform:translateY(-20px);
+  transform:translateY(-20px) scale(1.05);
   filter: blur(8px); /* 🔹 soft blur */
-  scale: 1.05;
+  transition: transform 0.15s ease-out; /* smooth zoom */
 }
 /* Gradient Overlay (bhantai + green tone) */
 .cover::after {
@@ -141,27 +141,12 @@ header{
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(0, 255, 100, 0.25) 0%,     /* soft green bottom */
-    rgba(0, 0, 0, 0.45) 60%,        /* dark fade */
-    rgba(0, 255, 150, 0.2) 100%     /* mint top */
+    rgba(0, 255, 100, 0.25) 0%,     
+    rgba(0, 0, 0, 0.45) 60%,        
+    rgba(0, 255, 150, 0.2) 100%     
   );
   mix-blend-mode: overlay;
   z-index: 2;
-}
-
-/* Smooth reactive shake animation */
-@keyframes smoothShake {
-  0%   { transform: translate(0, 0) scale(1.05); }
-  20%  { transform: translate(5px, -5px) scale(1.05); }
-  40%  { transform: translate(-4px, 6px) scale(1.05); }
-  60%  { transform: translate(6px, 3px) scale(1.05); }
-  80%  { transform: translate(-3px, -4px) scale(1.05); }
-  100% { transform: translate(0, 0) scale(1.05); }
-}
-
-/* Apply animation when class 'shake-active' is on cover */
-.cover.shake-active img {
-  animation: smoothShake 1.8s infinite ease-in-out;
 }
 </style>
 </head>
@@ -212,9 +197,35 @@ const songTitle=document.getElementById("songTitle");
 const artistName=document.getElementById("artistName");
 const coverImg=document.getElementById("coverImg");
 const timeCounter=document.getElementById("timeCounter");
-const cover=document.querySelector('.cover');
+const cover=document.querySelector('.cover img');
 let pc=null,playing=false;
 let reconnectTimeout=null;
+
+/* Audio analyser for beat-based zoom */
+let audioCtx, analyser, source, dataArray;
+
+function initAnalyser(){
+  if(audioCtx) return; // only once
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  source = audioCtx.createMediaElementSource(player);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  const bufferLength = analyser.frequencyBinCount;
+  dataArray = new Uint8Array(bufferLength);
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+
+  animateBeat();
+}
+
+function animateBeat(){
+  requestAnimationFrame(animateBeat);
+  if(!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
+  const scale = 1.05 + Math.min(avg/300, 0.12); // zoom intensity
+  cover.style.transform = `translateY(-20px) scale(${scale.toFixed(3)})`;
+}
 
 /* Update audio timer */
 setInterval(()=>{
@@ -244,6 +255,7 @@ function connectWS(){
         player.srcObject=ev.streams[0];
         player.play().catch(()=>{});
         connText.textContent="Live";
+        initAnalyser(); // start analyser when stream plays
       };
       pc.onicecandidate=ev=>{
         if(ev.candidate)
@@ -279,7 +291,10 @@ function handleDisconnect(){
 playBtn.onclick=async()=>{
   if(playing) player.pause();
   else {
-    try{await player.play();}catch(e){}
+    try{
+      await player.play();
+      if(audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    }catch(e){}
   }
 };
 player.addEventListener("pause",()=>{
@@ -287,18 +302,15 @@ player.addEventListener("pause",()=>{
   playBtn.classList.remove("playing");
   playIcon.style.display="block";
   pauseIcon.style.display="none";
-  cover.classList.remove("shake-active");
 });
 player.addEventListener("play",()=>{
   playing=true;
   playBtn.classList.add("playing");
   playIcon.style.display="none";
   pauseIcon.style.display="block";
-  cover.classList.add("shake-active");
+  initAnalyser();
 });
-player.addEventListener("ended",()=>{
-  cover.classList.remove("shake-active");
-});
+player.addEventListener("ended",()=>{playing=false;});
 
 /* Share + Chat */
 document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"🎧 Listen now",url:location.href});};
