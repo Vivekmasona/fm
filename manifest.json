@@ -3,8 +3,8 @@
   "short_name": "BiharFM",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#ff2b2b",
+  "background_color": "#000000",
+  "theme_color": "#ffff00",
   "description": "Listen to BiharFM Live anytime, anywhere.",
   "icons": [
     {
