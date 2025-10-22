@@ -355,3 +355,108 @@ connectWS();
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+<!-- 🟢 INSTALL POPUP -->
+<style>
+.install-popup {
+  position: fixed;
+  bottom: -200px;
+  left: 0;
+  width: 100%;
+  background: #151520;
+  border-radius: 18px 18px 0 0;
+  color: #fff;
+  box-shadow: 0 -2px 20px rgba(0,0,0,0.6);
+  padding: 18px 20px 24px;
+  transition: bottom 0.4s ease;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.install-popup.show {
+  bottom: 0;
+}
+.install-popup h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #fff;
+}
+.install-popup p {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 14px;
+}
+.install-btn {
+  background: linear-gradient(90deg,#ff3c3c,#ff8888);
+  color: #fff;
+  border: none;
+  outline: none;
+  border-radius: 30px;
+  padding: 10px 24px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 0 15px rgba(255,0,0,0.4);
+}
+.install-btn:hover {
+  transform: scale(1.05);
+}
+.close-install {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  color: #888;
+  cursor: pointer;
+  font-size: 20px;
+}
+</style>
+
+<div class="install-popup" id="installPopup">
+  <div class="close-install" onclick="hideInstallPopup()">×</div>
+  <h3>📻 Install BiharFM App</h3>
+  <p>Listen live anytime with one tap!</p>
+  <button class="install-btn" id="installBtn">Install Now</button>
+</div>
+
+<script>
+let deferredPrompt = null;
+const popup = document.getElementById('installPopup');
+const installBtn = document.getElementById('installBtn');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Always show on page refresh
+  setTimeout(() => popup.classList.add('show'), 1500);
+});
+
+installBtn.addEventListener('click', async () => {
+  popup.classList.remove('show');
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === 'accepted') {
+      console.log("App installed");
+    }
+    deferredPrompt = null;
+  } else {
+    alert("App can’t be installed manually right now.");
+  }
+});
+
+function hideInstallPopup() {
+  popup.classList.remove('show');
+}
+</script>
