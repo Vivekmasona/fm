@@ -188,7 +188,7 @@ header{
 
 <div class="bottom">
   <div class="cover">
-    <img id="coverImg" src="/img/other.jpg" alt="Cover">
+    <img id="coverImg" src="https://i.ibb.co/C5vr4CvR/other.jpg" alt="Cover">
   </div>
 </div>
 
@@ -224,13 +224,13 @@ function connectWS(){
 
   socket.onopen=()=>{
     socket.send(JSON.stringify({type:"register",role:"listener"}));
-    connText.textContent="Waiting for stream¦";
+    connText.textContent="Waiting for stream";
   };
 
   socket.onmessage=async e=>{
     const msg=JSON.parse(e.data);
     if(msg.type==="offer"){
-      connText.textContent="Connecting Stream¦";
+      connText.textContent="Connecting Stream";
       pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
       pc.ontrack=ev=>{
         player.srcObject=ev.streams[0];
