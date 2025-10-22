@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>BiharFM ” Live</title>
 
-<!-- ✅ PWA Setup -->
+<!-- ✅ PWA -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#dadada">
 <link rel="apple-touch-icon" href="192.png">
@@ -40,7 +40,7 @@ body{
   overflow:hidden;
 }
 
-/* --- Header --- */
+/* Header */
 header{
   width:100%;
   padding:16px 22px;
@@ -51,68 +51,38 @@ header{
              inset -2px -2px 5px var(--shadow-light);
   border-radius:0 0 24px 24px;
 }
-.logo{
-  font-size:22px;
-  font-weight:700;
-}
+.logo{font-size:22px;font-weight:700;}
 .logo span:first-child{color:#111;}
 .logo span:last-child{color:var(--accent);}
-.liveStatus{
-  display:flex;
-  align-items:center;
-  gap:8px;
-  font-size:14px;
-}
+.liveStatus{display:flex;align-items:center;gap:8px;font-size:14px;}
 .liveDot{
   width:10px;height:10px;border-radius:50%;
-  background:var(--accent);
-  box-shadow:0 0 10px var(--accent);
+  background:var(--accent);box-shadow:0 0 10px var(--accent);
   position:relative;
 }
 .liveDot::after{
   content:"";position:absolute;inset:0;border-radius:50%;
-  background:rgba(255,0,0,0.4);
-  animation:ripple 1.4s ease-out infinite;
+  background:rgba(255,0,0,0.4);animation:ripple 1.4s ease-out infinite;
 }
-@keyframes ripple{
-  0%{transform:scale(1);opacity:1;}
-  100%{transform:scale(2.5);opacity:0;}
-}
+@keyframes ripple{0%{transform:scale(1);opacity:1;}100%{transform:scale(2.5);opacity:0;}}
 
-/* --- Cover --- */
-.cover {
-  width: 220px;
-  height: 220px;
-  margin-top:40px;
-  border-radius: 30px;
-  overflow: hidden;
-  box-shadow: 8px 8px 16px var(--shadow-dark),
-              -8px -8px 16px var(--shadow-light);
+/* Cover */
+.cover{
+  width:220px;height:220px;margin-top:40px;
+  border-radius:30px;overflow:hidden;
+  box-shadow:8px 8px 16px var(--shadow-dark),
+             -8px -8px 16px var(--shadow-light);
 }
-.cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.cover img{width:100%;height:100%;object-fit:cover;}
 
-/* --- Song Info --- */
-.song-info {
-  margin-top: 30px;
-  text-align:center;
-}
-.song-info h2 {
-  font-size:22px;
-  font-weight:700;
-  color:#111;
-}
-.song-info p {
-  font-size:15px;
-  color:#444;
-  margin-top:6px;
-}
+/* Info */
+.song-info{text-align:center;margin-top:30px;}
+.song-info h2{font-size:22px;font-weight:700;color:#111;}
+.song-info p{font-size:15px;color:#444;margin-top:6px;}
+.time{margin-top:10px;font-size:14px;color:#333;}
 
-/* --- Controls --- */
-.controls {
+/* Controls */
+.controls{
   position:absolute;
   bottom:10%;
   left:50%;
@@ -122,115 +92,60 @@ header{
   align-items:center;
   gap:35px;
 }
-.btn {
-  width:60px;
-  height:60px;
-  border-radius:20px;
+.btn{
+  width:60px;height:60px;border-radius:20px;
   background:var(--card);
-  display:flex;
-  align-items:center;
-  justify-content:center;
+  display:flex;align-items:center;justify-content:center;
   box-shadow:6px 6px 12px var(--shadow-dark),
              -6px -6px 12px var(--shadow-light);
-  cursor:pointer;
-  transition:0.25s;
+  cursor:pointer;transition:0.25s;
 }
-.btn:hover {transform:scale(1.07);}
-.btn svg {width:26px;height:26px;fill:#333;}
-.play {
-  width:85px;
-  height:85px;
-  border-radius:50%;
-  background:var(--card);
-  position:relative;
+.btn:hover{transform:scale(1.07);}
+.btn svg{width:26px;height:26px;fill:#333;}
+.play{
+  width:85px;height:85px;border-radius:50%;
+  background:var(--card);position:relative;
   box-shadow:inset 6px 6px 10px var(--shadow-dark),
              inset -6px -6px 10px var(--shadow-light);
 }
-.play.playing {
+.play.playing{
   box-shadow:0 0 20px rgba(255,0,0,0.3),
              inset 6px 6px 10px var(--shadow-dark),
              inset -6px -6px 10px var(--shadow-light);
 }
-.play svg {fill:var(--accent);width:40px;height:40px;}
+.play svg{fill:var(--accent);width:40px;height:40px;}
 
-/* --- Time Counter --- */
-.time {
-  margin-top:10px;
-  font-size:14px;
-  color:#333;
+/* Retry */
+#retryOverlay{
+  position:fixed;inset:0;
+  background:rgba(240,240,240,0.95);
+  display:none;justify-content:center;align-items:center;flex-direction:column;
+  z-index:100;color:#111;font-size:18px;
 }
-
-/* --- Retry Overlay --- */
-#retryOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(240,240,240,0.95);
-  color: #111;
-  font-size: 18px;
-  display: none;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  z-index: 100;
-}
-#retryOverlay button {
-  margin-top: 15px;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 16px;
-  cursor: pointer;
+#retryOverlay button{
+  margin-top:15px;padding:10px 20px;border:none;border-radius:12px;
+  background:var(--accent);color:#fff;font-size:16px;cursor:pointer;
 }
 
-/* --- Install Popup --- */
-.install-popup {
-  position: fixed;
-  bottom: -200px;
-  left: 0;
-  width: 100%;
-  background: var(--card);
-  border-radius: 18px 18px 0 0;
-  color: #111;
-  box-shadow: 0 -2px 20px rgba(0,0,0,0.2);
-  padding: 18px 20px 24px;
-  transition: bottom 0.4s ease;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
+/* Install Popup */
+.install-popup{
+  position:fixed;bottom:-200px;left:0;width:100%;
+  background:var(--card);border-radius:18px 18px 0 0;
+  color:#111;box-shadow:0 -2px 20px rgba(0,0,0,0.2);
+  padding:18px 20px 24px;transition:bottom 0.4s ease;z-index:9999;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
 }
-.install-popup.show {bottom: 0;}
-.install-popup h3 {
-  font-size:18px;
-  font-weight:600;
-  margin-bottom:6px;
-  color:#111;
-}
-.install-popup p {
-  font-size:14px;
-  color:#333;
-  margin-bottom:14px;
-}
-.install-btn {
+.install-popup.show{bottom:0;}
+.install-popup h3{font-size:18px;font-weight:600;margin-bottom:6px;}
+.install-popup p{font-size:14px;color:#333;margin-bottom:14px;}
+.install-btn{
   background:linear-gradient(90deg,#ff3c3c,#ff8888);
-  color:#fff;
-  border:none;
-  border-radius:30px;
-  padding:10px 24px;
-  font-weight:600;
-  font-size:15px;
-  cursor:pointer;
-  box-shadow:0 0 15px rgba(255,0,0,0.4);
+  color:#fff;border:none;border-radius:30px;
+  padding:10px 24px;font-weight:600;font-size:15px;
+  cursor:pointer;box-shadow:0 0 15px rgba(255,0,0,0.4);
 }
-.close-install {
-  position:absolute;
-  top:10px;right:18px;
-  color:#777;
-  cursor:pointer;
-  font-size:20px;
+.close-install{
+  position:absolute;top:10px;right:18px;color:#777;cursor:pointer;font-size:20px;
 }
 </style>
 </head>
@@ -241,9 +156,7 @@ header{
   <div class="liveStatus"><div class="liveDot"></div><span id="connText">Connecting…</span></div>
 </header>
 
-<div class="cover">
-  <img id="coverImg" src="https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg" alt="Cover">
-</div>
+<div class="cover"><img id="coverImg" src="https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg" alt="Cover"></div>
 
 <div class="song-info">
   <h2 id="songTitle">Bihar FM</h2>
@@ -264,6 +177,7 @@ header{
   </div>
 </div>
 
+<!-- Retry Overlay -->
 <div id="retryOverlay">
   <div>Connection lost</div>
   <button id="retryBtn">Tap to Retry</button>
@@ -271,6 +185,7 @@ header{
 
 <audio id="player" autoplay></audio>
 
+<!-- Install Popup -->
 <div class="install-popup" id="installPopup">
   <div class="close-install" onclick="hideInstallPopup()">×</div>
   <h3>📻 Install BiharFM</h3>
@@ -294,15 +209,16 @@ const retryBtn = document.getElementById("retryBtn");
 
 let pc = null, playing = false;
 let reconnectTimeout = null, reconnecting = false, retryCount = 0;
+let lastMeta = { title: "", artist: "", cover: "" };
 
-/* Restore last metadata if available */
+/* Restore local metadata if exists */
 window.addEventListener("load",()=>{
-  const saved = localStorage.getItem("lastSong");
+  const saved = localStorage.getItem("lastMeta");
   if(saved){
-    const d = JSON.parse(saved);
-    songTitle.textContent = d.title;
-    artistName.textContent = d.artist;
-    coverImg.src = d.cover;
+    const meta = JSON.parse(saved);
+    songTitle.textContent = meta.title || "Bihar FM";
+    artistName.textContent = meta.artist || "By Vivekfy";
+    if(meta.cover) coverImg.src = meta.cover;
   }
 });
 
@@ -338,6 +254,7 @@ function connectWS(){
         player.srcObject=ev.streams[0];
         player.play().catch(()=>{});
         connText.textContent="Live";
+        localStorage.removeItem("lastMeta"); // clear saved meta on success
       };
       pc.onicecandidate=ev=>{
         if(ev.candidate)
@@ -352,19 +269,19 @@ function connectWS(){
       await pc.addIceCandidate(msg.payload).catch(()=>{});
     }
     if(msg.type==="metadata"){
+      const changed = msg.title!==lastMeta.title || msg.artist!==lastMeta.artist || msg.cover!==lastMeta.cover;
       if(msg.title)songTitle.textContent=msg.title;
       if(msg.artist)artistName.textContent=msg.artist;
       if(msg.cover)coverImg.src=msg.cover;
 
-      // ✅ Save metadata to localStorage
-      localStorage.setItem("lastSong", JSON.stringify({
-        title: msg.title,
-        artist: msg.artist,
-        cover: msg.cover
-      }));
-
-      // ✅ Clear storage if playing successfully again
-      if(player.srcObject) localStorage.removeItem("lastSong");
+      if(changed){
+        lastMeta={title:msg.title,artist:msg.artist,cover:msg.cover};
+        if(connText.textContent!=="Live"){
+          // Save & reload to reconnect instantly
+          localStorage.setItem("lastMeta",JSON.stringify(lastMeta));
+          location.reload();
+        }
+      }
     }
   };
 
@@ -378,28 +295,16 @@ function handleDisconnect(){
   connText.textContent="Reconnecting...";
   if(pc){pc.close();pc=null;}
   if(reconnectTimeout) clearTimeout(reconnectTimeout);
-
+  if(playing) player.pause(); // auto pause on disconnect
   retryCount++;
-  // ✅ Save current metadata before reload
-  const d={
-    title:songTitle.textContent,
-    artist:artistName.textContent,
-    cover:coverImg.src
-  };
-  localStorage.setItem("lastSong", JSON.stringify(d));
-
-  if(retryCount <= 3){
+  if(retryCount <= 5){
     reconnectTimeout=setTimeout(()=>{ connectWS(); }, 3000);
   } else {
-    // After few failed attempts → auto reload page
-    location.reload();
+    retryOverlay.style.display="flex";
   }
 }
 
-retryBtn.onclick=()=>{
-  retryCount = 0;
-  connectWS();
-};
+retryBtn.onclick=()=>{retryCount=0;connectWS();};
 
 /* Play / Pause */
 playBtn.onclick=async()=>{
@@ -420,29 +325,28 @@ player.addEventListener("play",()=>{
 });
 
 /* Share + Chat */
-document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"Listen now",url:location.href});};
-document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
+document.getElementById("shareBtn").onclick=()=>{
+  if(navigator.share)navigator.share({title:"BiharFM Live",text:"Listen now",url:location.href});
+};
+document.getElementById("chatBtn").onclick=()=>{
+  window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");
+};
 
 /* Install Popup */
 let deferredPrompt = null;
 const popup = document.getElementById('installPopup');
 const installBtn = document.getElementById('installBtn');
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  setTimeout(() => popup.classList.add('show'), 1500);
+window.addEventListener('beforeinstallprompt',(e)=>{
+  e.preventDefault();deferredPrompt=e;
+  setTimeout(()=>popup.classList.add('show'),1500);
 });
-installBtn.addEventListener('click', async () => {
+installBtn.addEventListener('click',async()=>{
   popup.classList.remove('show');
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    deferredPrompt = null;
-  }
+  if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;}
 });
-function hideInstallPopup() { popup.classList.remove('show'); }
+function hideInstallPopup(){popup.classList.remove('show');}
 
-/* Initial connect */
+/* Start */
 connectWS();
 </script>
 </body>
