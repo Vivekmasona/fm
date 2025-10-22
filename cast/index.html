@@ -1,10 +1,11 @@
 <!doctype html>
-<meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="theme-color" content="#00ffcc">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="color-scheme" content="dark light">
+
+  
+  
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+  
+  
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 
@@ -380,35 +381,30 @@ footer {
 
 <script>
 /*
-  Final integrated broadcaster UI + WebSocket + WebRTC
-  - WS server: wss://fmconnector.onrender.com
-  - Supports listener count updates (listener-joined, peer-left, optional listeners)
-  - jsmediatags used for thumbnail/artist metadata
-  - Mic mixing, quality selector -> sets maxBitrate on RTCRtpSender encodings
+  BiharFM Broadcaster
+  - WebSocket + WebRTC
+  - Auto metadata sync (title, artist, cover)
+  - Mic mix, reconnect, bitrate control
 */
 
 const WS_URL = "wss://fmconnector.onrender.com";
 
-// DOM
+// DOM refs
 const statusDot = document.getElementById("statusDot");
 const listenersEl = document.getElementById("listeners");
 const qualityDisplay = document.getElementById("quality");
 const qualitySel = document.getElementById("qualitySel");
-
 const fileInput = document.getElementById("fileInput");
 const playlistEl = document.getElementById("playlist");
-
 const prevBtn = document.getElementById("prevBtn");
 const playPauseBtn = document.getElementById("playPause");
 const nextBtn = document.getElementById("nextBtn");
 const seek = document.getElementById("seek");
 const volume = document.getElementById("volume");
 const speed = document.getElementById("speed");
-
 const goLiveBtn = document.getElementById("goLive");
 const micBtn = document.getElementById("micBtn");
 const reconnectBtn = document.getElementById("reconnectBtn");
-
 const player = document.getElementById("player");
 
 // state
@@ -424,65 +420,75 @@ let micEnabled = false;
 let peerCount = 0;
 let currentBitrate = parseInt(qualitySel.value) || 64000;
 
-// --- WebSocket connect ---
-function connectWS(){
-  if(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+// --- WebSocket connect + auto reconnect ---
+function connectWS() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
   ws = new WebSocket(WS_URL);
   setStatusLoading(true);
+
   ws.onopen = () => {
     setStatusConnected(true);
-    try { ws.send(JSON.stringify({ type:"register", role:"broadcaster" })); } catch(e){}
+    ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
   };
-  ws.onclose = () => setStatusConnected(false);
-  ws.onerror = (e) => { console.warn("WS error", e); setStatusConnected(false); };
+
+  ws.onclose = () => {
+    setStatusConnected(false);
+    console.warn("WS closed, reconnecting...");
+    setTimeout(connectWS, 2000);
+  };
+
+  ws.onerror = (e) => {
+    console.warn("WS error", e);
+    setStatusConnected(false);
+  };
+
   ws.onmessage = async (evt) => {
     try {
       const msg = JSON.parse(evt.data);
       handleWSMessage(msg);
-    } catch(e) { console.warn("Invalid WS message", e); }
+    } catch (e) {
+      console.warn("Invalid WS message", e);
+    }
   };
 }
 connectWS();
 
-// --- Handle WS Messages ---
-async function handleWSMessage(msg){
-  if(!msg.type) return;
+// --- Handle WS messages ---
+async function handleWSMessage(msg) {
+  if (!msg.type) return;
 
-  if(msg.type === "listener-joined"){
+  if (msg.type === "listener-joined") {
     peerCount++;
     updateListenersUI();
-    if(msg.id) await makePeer(msg.id);
-  } else if(msg.type === "peer-left"){
+    if (msg.id) await makePeer(msg.id);
+  } else if (msg.type === "peer-left") {
     peerCount = Math.max(0, peerCount - 1);
     updateListenersUI();
-    if(msg.id && pcs.has(msg.id)){
+    if (msg.id && pcs.has(msg.id)) {
       pcs.get(msg.id).close();
       pcs.delete(msg.id);
     }
-  } else if(msg.type === "answer"){
+  } else if (msg.type === "answer") {
     const pc = pcs.get(msg.from);
-    if(pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(()=>{});
-  } else if(msg.type === "candidate"){
+    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(() => {});
+  } else if (msg.type === "candidate") {
     const pc = pcs.get(msg.from);
-    if(pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch(e){console.warn(e)}
-  } else if(msg.type === "listeners" && typeof msg.count === "number"){
-    peerCount = msg.count;
-    updateListenersUI();
+    if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
   }
 }
 
-function updateListenersUI(){
+// --- UI helpers ---
+function updateListenersUI() {
   listenersEl.textContent = `Listeners: ${peerCount}`;
 }
-
-// --- Status helpers ---
-function setStatusLoading(flag){
-  if(flag) statusDot.classList.add("loading");
+function setStatusLoading(flag) {
+  if (flag) statusDot.classList.add("loading");
   else statusDot.classList.remove("loading");
 }
-function setStatusConnected(connected){
+function setStatusConnected(connected) {
   setStatusLoading(false);
-  if(connected){
+  if (connected) {
     statusDot.style.background = "var(--green)";
     statusDot.style.boxShadow = "0 0 10px var(--green)";
   } else {
@@ -494,16 +500,22 @@ function setStatusConnected(connected){
 reconnectBtn.onclick = () => {
   setStatusLoading(true);
   setStatusConnected(false);
-  if(ws) try{ ws.close(); } catch(e){}
-  setTimeout(()=>{ connectWS(); }, 900);
+  if (ws) try { ws.close(); } catch (e) {}
+  setTimeout(connectWS, 900);
 };
 
-// --- File upload + metadata ---
+// --- File upload + metadata read ---
 fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);
   playlist = files;
-  tracksMeta = files.map(f => ({ title: f.name.replace(/\.[^/.]+$/, ""), artist: "Unknown Artist", cover: null, file: f }));
+  tracksMeta = files.map(f => ({
+    title: f.name.replace(/\.[^/.]+$/, ""),
+    artist: "Unknown Artist",
+    cover: null,
+    file: f
+  }));
   playlistEl.innerHTML = "";
+
   files.forEach((file, idx) => {
     const item = document.createElement("div");
     item.className = "song";
@@ -515,7 +527,7 @@ fileInput.addEventListener("change", (e) => {
         <div class="artist" id="artist-${idx}">${tracksMeta[idx].artist}</div>
       </div>
     `;
-    item.addEventListener("click", ()=> playSong(idx));
+    item.addEventListener("click", () => playSong(idx));
     playlistEl.appendChild(item);
 
     jsmediatags.read(file, {
@@ -527,17 +539,18 @@ fileInput.addEventListener("change", (e) => {
         tracksMeta[idx].artist = artist;
         const titleEl = document.getElementById(`title-${idx}`);
         const artistEl = document.getElementById(`artist-${idx}`);
-        if(titleEl) titleEl.textContent = title;
-        if(artistEl) artistEl.textContent = artist;
-        if(t.picture && t.picture.data){
+        if (titleEl) titleEl.textContent = title;
+        if (artistEl) artistEl.textContent = artist;
+
+        if (t.picture && t.picture.data) {
           const data = t.picture.data;
           const format = t.picture.format || "image/jpeg";
           let base64 = "";
-          for(let i=0;i<data.length;i++) base64 += String.fromCharCode(data[i]);
+          for (let i = 0; i < data.length; i++) base64 += String.fromCharCode(data[i]);
           const url = `data:${format};base64,${btoa(base64)}`;
           tracksMeta[idx].cover = url;
           const coverEl = document.getElementById(`cover-${idx}`);
-          if(coverEl) coverEl.style.backgroundImage = `url(${url})`;
+          if (coverEl) coverEl.style.backgroundImage = `url(${url})`;
         }
       }
     });
@@ -546,69 +559,76 @@ fileInput.addEventListener("change", (e) => {
 
 // --- Playback controls ---
 playPauseBtn.addEventListener("click", async () => {
-  if(!player.src) return;
-  if(player.paused){ await player.play(); playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>'; }
-  else { player.pause(); playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; }
-});
-
-prevBtn.addEventListener("click", ()=> {
-  if(currentIndex > 0) playSong(currentIndex - 1);
-});
-nextBtn.addEventListener("click", ()=> {
-  if(currentIndex + 1 < playlist.length) playSong(currentIndex + 1);
-});
-
-seek.addEventListener("input", ()=> {
-  if(player.duration && !isNaN(player.duration)) player.currentTime = (seek.value/100) * player.duration;
-});
-player.ontimeupdate = ()=> {
-  if(player.duration && !isNaN(player.duration)) seek.value = (player.currentTime/player.duration) * 100;
-};
-
-// --- Auto play next song ---
-player.onended = () => {
-  if (currentIndex + 1 < playlist.length) {
-    playSong(currentIndex + 1);
+  if (!player.src) return;
+  if (player.paused) {
+    await player.play();
+    playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
   } else {
-    // uncomment this line to loop playlist:
-    // playSong(0);
+    player.pause();
     playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
   }
+});
+prevBtn.onclick = () => { if (currentIndex > 0) playSong(currentIndex - 1); };
+nextBtn.onclick = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); };
+seek.oninput = () => {
+  if (player.duration) player.currentTime = (seek.value / 100) * player.duration;
 };
-
-volume.addEventListener("input", ()=> player.volume = volume.value);
-speed.addEventListener("input", ()=> player.playbackRate = speed.value);
+player.ontimeupdate = () => {
+  if (player.duration) seek.value = (player.currentTime / player.duration) * 100;
+};
+player.onended = () => {
+  if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1);
+  else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+};
+volume.oninput = () => player.volume = volume.value;
+speed.oninput = () => player.playbackRate = speed.value;
 
 // --- Quality selector ---
-qualitySel.addEventListener("change", (e) => {
+qualitySel.onchange = (e) => {
   currentBitrate = parseInt(e.target.value || 64000);
-  qualityDisplay.textContent = `Quality: ${Math.round(currentBitrate/1000)} kbps`;
+  qualityDisplay.textContent = `Quality: ${Math.round(currentBitrate / 1000)} kbps`;
   setAllSendersBitrate(currentBitrate);
-});
+};
 
-// --- Play + Stream ---
-async function playSong(i){
-  if(!playlist[i]) return;
+// --- Play song + send metadata ---
+async function playSong(i) {
+  if (!playlist[i]) return;
   currentIndex = i;
   const file = playlist[i];
   player.src = URL.createObjectURL(file);
   await player.play();
   playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+
   document.querySelectorAll(".song").forEach(el => el.classList.remove("active"));
   const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
-  if(el) el.classList.add("active");
+  if (el) el.classList.add("active");
+
   updateLiveBadge(i);
+
   const stream = player.captureStream();
   localStream = stream;
   currentTrack = stream.getAudioTracks()[0];
   await updateAllPeersTrack();
+
+  // 🔴 Send metadata to listeners
+  const meta = tracksMeta[i] || {};
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "metadata",
+      payload: {
+        title: meta.title || "Unknown",
+        artist: meta.artist || "Unknown Artist",
+        cover: meta.cover || ""
+      }
+    }));
+  }
 }
 
 // --- Live badge ---
-function updateLiveBadge(i){
+function updateLiveBadge(i) {
   document.querySelectorAll(".song .live-badge").forEach(n => n.remove());
   const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
-  if(!el) return;
+  if (!el) return;
   const badge = document.createElement("div");
   badge.className = "live-badge";
   badge.textContent = "LIVE";
@@ -616,149 +636,110 @@ function updateLiveBadge(i){
 }
 
 // --- Mic mixing ---
-micBtn.addEventListener("click", toggleMic);
-async function toggleMic(){
-  if(!micEnabled){
+micBtn.onclick = async () => {
+  if (!micEnabled) {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const ctx = new AudioContext();
       const dest = ctx.createMediaStreamDestination();
-      const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : (player.src ? ctx.createMediaElementSource(player) : null);
+      const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : ctx.createMediaElementSource(player);
       const micSrc = ctx.createMediaStreamSource(micStream);
       const gMusic = ctx.createGain(), gMic = ctx.createGain();
-      gMusic.gain.value = 0.2;
-      gMic.gain.value = 0.9;
-      if(musicSrc) musicSrc.connect(gMusic).connect(dest);
+      gMusic.gain.value = 0.2; gMic.gain.value = 0.9;
+      musicSrc.connect(gMusic).connect(dest);
       micSrc.connect(gMic).connect(dest);
       localStream = dest.stream;
       currentTrack = localStream.getAudioTracks()[0];
       await updateAllPeersTrack();
       micEnabled = true;
       micBtn.style.background = "var(--green)";
-    } catch(e){
-      alert("Mic access denied");
-    }
+    } catch (e) { alert("Mic access denied"); }
   } else {
-    if(micStream) micStream.getTracks().forEach(t => t.stop());
-    micStream = null;
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
     micEnabled = false;
+    micStream = null;
+    micBtn.style.background = "";
     const ctx = new AudioContext();
     const dest = ctx.createMediaStreamDestination();
-    try {
-      const src = ctx.createMediaElementSource(player);
-      src.connect(dest);
-      localStream = dest.stream;
-      currentTrack = localStream.getAudioTracks()[0];
-      await updateAllPeersTrack();
-    } catch(e){}
-    micBtn.style.background = "";
+    const src = ctx.createMediaElementSource(player);
+    src.connect(dest);
+    localStream = dest.stream;
+    currentTrack = localStream.getAudioTracks()[0];
+    await updateAllPeersTrack();
   }
-}
+};
 
-// --- WebRTC ---
-async function makePeer(id){
-  if(!id) return;
-  if(pcs.has(id)) {
+// --- WebRTC + bitrate helpers ---
+async function makePeer(id) {
+  if (!id) return;
+  if (pcs.has(id)) {
     const existing = pcs.get(id);
-    if(existing.iceConnectionState === "closed") pcs.delete(id);
+    if (existing.iceConnectionState === "closed") pcs.delete(id);
     else return;
   }
   const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   pcs.set(id, pc);
-  try {
-    if(currentTrack && localStream) pc.addTrack(currentTrack, localStream);
-  } catch(e){}
 
-  pc.onicecandidate = e => {
-    if(e.candidate && ws && ws.readyState === WebSocket.OPEN){
-      ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate }));
-    }
-  };
+  try { if (currentTrack && localStream) pc.addTrack(currentTrack, localStream); } catch (e) {}
+  pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
+  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) pcs.delete(id); };
 
-  pc.onconnectionstatechange = () => {
-    if(["disconnected","failed","closed"].includes(pc.connectionState)){
-      pcs.delete(id);
-    }
-  };
-
-  try {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    if(ws && ws.readyState === WebSocket.OPEN){
-      ws.send(JSON.stringify({ type: "offer", target: id, payload: pc.localDescription }));
-    }
-  } catch(e){}
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "offer", target: id, payload: pc.localDescription }));
 }
 
-// --- Replace Track + Bitrate ---
-async function updateAllPeersTrack(){
-  if(!currentTrack) return;
-  for(const [id, pc] of pcs.entries()){
-    try{
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === "audio");
-      if(sender) {
-        await sender.replaceTrack(currentTrack);
-        setSenderBitrate(sender, currentBitrate);
-      } else {
-        pc.addTrack(currentTrack, localStream);
-      }
-    }catch(e){}
+async function updateAllPeersTrack() {
+  if (!currentTrack) return;
+  for (const [id, pc] of pcs.entries()) {
+    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
+    if (sender) {
+      await sender.replaceTrack(currentTrack);
+      setSenderBitrate(sender, currentBitrate);
+    } else {
+      pc.addTrack(currentTrack, localStream);
+    }
   }
 }
-
-async function setAllSendersBitrate(bitrate){
-  currentBitrate = parseInt(bitrate)||64000;
-  for(const pc of pcs.values()){
-    const sender = pc.getSenders().find(s => s.track && s.track.kind === "audio");
-    if(!sender) continue;
-    await setSenderBitrate(sender, currentBitrate);
+async function setAllSendersBitrate(bitrate) {
+  for (const pc of pcs.values()) {
+    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
+    if (sender) await setSenderBitrate(sender, bitrate);
   }
 }
-
-async function setSenderBitrate(sender, bitrate){
-  if(!sender || !sender.getParameters) return;
+async function setSenderBitrate(sender, bitrate) {
+  if (!sender || !sender.getParameters) return;
   try {
-    const params = sender.getParameters();
-    if(!params.encodings) params.encodings = [{}];
-    params.encodings[0].maxBitrate = parseInt(bitrate);
-    await sender.setParameters(params);
-  } catch(e){}
+    const p = sender.getParameters();
+    if (!p.encodings) p.encodings = [{}];
+    p.encodings[0].maxBitrate = parseInt(bitrate);
+    await sender.setParameters(p);
+  } catch (e) {}
 }
 
-// --- Broadcast controls ---
-async function startBroadcast(){
-  if(!playlist.length) return alert("Please upload songs first");
-  const startIndex = Math.max(0, currentIndex === -1 ? 0 : currentIndex);
-  await playSong(startIndex);
+// --- Broadcast start/stop ---
+goLiveBtn.onclick = () => {
+  const active = goLiveBtn.classList.toggle("active");
+  if (active) startBroadcast();
+  else stopBroadcast();
+};
+async function startBroadcast() {
+  if (!playlist.length) return alert("Please upload songs first");
+  const idx = currentIndex === -1 ? 0 : currentIndex;
+  await playSong(idx);
 }
-
-function stopBroadcast(){
-  for(const pc of pcs.values()) try{ pc.close(); } catch(e){}
+function stopBroadcast() {
+  for (const pc of pcs.values()) try { pc.close(); } catch (e) {}
   pcs.clear();
   peerCount = 0;
   updateListenersUI();
 }
 
-goLiveBtn.addEventListener("click", ()=>{
-  const active = goLiveBtn.classList.toggle("active");
-  if(active){
-    startBroadcast().catch(()=>{});
-  } else {
-    stopBroadcast();
-  }
+// Cleanup
+window.addEventListener("beforeunload", () => {
+  try { ws?.close(); } catch (e) {}
+  pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
 });
-
-// cleanup
-window.addEventListener("beforeunload", ()=> {
-  try{ if(ws) ws.close(); } catch(e){}
-  pcs.forEach(pc => { try{ pc.close(); } catch(e){} });
-});
-
-// Mutation observer for dataset indices
-const observer = new MutationObserver(() => {
-  Array.from(playlistEl.children).forEach((c, idx) => c.dataset.index = idx);
-});
-observer.observe(playlistEl, { childList:true });
 
 </script>
 
