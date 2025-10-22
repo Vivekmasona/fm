@@ -92,12 +92,10 @@ header{
   box-shadow:0 0 20px rgba(255,0,0,0.4);
 }
 .play svg{fill:#fff;width:80px;height:80px;}
-/* Red Wave Animation when playing */
 .play.playing::after{
   content:"";
   position:absolute;
   inset:0;
- 
   border-radius:50%;
   background:rgba(255,50,50,0.4);
   animation:wavePulse 1.5s infinite ease-out;
@@ -127,13 +125,6 @@ header{
   width:100%;height:100%;object-fit:cover;
   transform:translateY(-20px);
 }
-
-/* Responsive */
-@media(max-height:650px){
-  .top{flex:0 0 45%;}
-  .song-info h2{font-size:18px;}
-  .play{width:65px;height:65px;}
-}
 </style>
 </head>
 <body>
@@ -146,8 +137,8 @@ header{
   </header>
 
   <div class="song-info">
-    <h2 id="songTitle">Loading...</h2>
-    <p id="artistName">Please wait</p>
+    <h2 id="songTitle">Bihar FM</h2>
+    <p id="artistName">By Vivekfy-TM</p>
   </div>
 
   <div class="controls">
@@ -184,8 +175,9 @@ const artistName=document.getElementById("artistName");
 const coverImg=document.getElementById("coverImg");
 const timeCounter=document.getElementById("timeCounter");
 let pc=null,playing=false;
+let reconnectTimeout=null;
 
-/* Show current audio seconds */
+/* Update audio timer */
 setInterval(()=>{
   if(player && !isNaN(player.currentTime)){
     const t=Math.floor(player.currentTime);
@@ -195,34 +187,59 @@ setInterval(()=>{
   }
 },1000);
 
-/* Connection */
-function setStatus(text){connText.textContent=text;}
-const socket=new WebSocket(WS_URL);
-socket.onopen=()=>{socket.send(JSON.stringify({type:"register",role:"listener"}));setStatus("Waiting…");};
-socket.onmessage=async e=>{
-  const msg=JSON.parse(e.data);
-  if(msg.type==="offer"){
-    setStatus("Connecting…");
-    pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
-    pc.ontrack=ev=>{player.srcObject=ev.streams[0];setStatus("Live");player.play().catch(()=>{});};
-    pc.onicecandidate=ev=>{if(ev.candidate)socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:ev.candidate}));};
-    await pc.setRemoteDescription(msg.payload);
-    const ans=await pc.createAnswer();await pc.setLocalDescription(ans);
-    socket.send(JSON.stringify({type:"answer",target:msg.from,payload:ans}));
-  }
-  if(msg.type==="candidate"&&pc)await pc.addIceCandidate(msg.payload).catch(()=>{});
-  if(msg.type==="metadata"){
-    if(msg.title)songTitle.textContent=msg.title;
-    if(msg.artist)artistName.textContent=msg.artist;
-    if(msg.cover)coverImg.src=msg.cover;
-  }
-};
+function connectWS(){
+  const socket=new WebSocket(WS_URL);
+  connText.textContent="Connecting…";
 
-/* Play/Pause + red wave */
+  socket.onopen=()=>{
+    socket.send(JSON.stringify({type:"register",role:"listener"}));
+    connText.textContent="Waiting for stream…";
+  };
+
+  socket.onmessage=async e=>{
+    const msg=JSON.parse(e.data);
+    if(msg.type==="offer"){
+      connText.textContent="Connecting Stream…";
+      pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+      pc.ontrack=ev=>{
+        player.srcObject=ev.streams[0];
+        player.play().catch(()=>{});
+        connText.textContent="Live";
+      };
+      pc.onicecandidate=ev=>{
+        if(ev.candidate)
+          socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:ev.candidate}));
+      };
+      await pc.setRemoteDescription(msg.payload);
+      const ans=await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      socket.send(JSON.stringify({type:"answer",target:msg.from,payload:ans}));
+    }
+    if(msg.type==="candidate"&&pc){
+      await pc.addIceCandidate(msg.payload).catch(()=>{});
+    }
+    if(msg.type==="metadata"){
+      if(msg.title)songTitle.textContent=msg.title;
+      if(msg.artist)artistName.textContent=msg.artist;
+      if(msg.cover)coverImg.src=msg.cover;
+    }
+  };
+
+  socket.onclose=()=>handleDisconnect();
+  socket.onerror=()=>handleDisconnect();
+}
+
+function handleDisconnect(){
+  connText.textContent="Reconnecting…";
+  if(pc){pc.close();pc=null;}
+  if(reconnectTimeout)clearTimeout(reconnectTimeout);
+  reconnectTimeout=setTimeout(connectWS,3000);
+}
+
+/* Play / Pause */
 playBtn.onclick=async()=>{
-  if(playing){
-    player.pause();
-  }else{
+  if(playing) player.pause();
+  else {
     try{await player.play();}catch(e){}
   }
 };
@@ -242,6 +259,9 @@ player.addEventListener("play",()=>{
 /* Share + Chat */
 document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"🎧 Listen now",url:location.href});};
 document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=🎧 Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
+
+/* Initial connect */
+connectWS();
 </script>
 </body>
 </html>
