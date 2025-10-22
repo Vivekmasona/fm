@@ -4,6 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>BiharFM ” Live</title>
+
+<!-- ✅ PWA Setup -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(()=>console.log('✅ Service Worker Registered'))
+    .catch(console.error);
+}
+</script>
+
+<!-- ⚡ Performance Hints -->
+<meta http-equiv="Cache-Control" content="max-age=3600, must-revalidate">
+<link rel="preconnect" href="wss://fmconnector.onrender.com">
+<link rel="preload" as="image" href="https://i.ibb.co/84nfStqz/images-4.jpg">
+
 <style>
 :root {
   --accent:#ff2b2b;
@@ -29,32 +47,27 @@ body{
   position: relative;
   overflow: hidden;
 }
-
 .cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transform: translateY(-20px);
-  filter: blur(4px); /* ðŸ”¹ Added blur */
-  scale: 1.05;       /* slight zoom to hide edge blur */
+  filter: blur(4px);
+  scale: 1.05;
 }
-
-/* Gradient Overlay (bhantai + green tone) */
 .cover::after {
   content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(0, 255, 100, 0.25) 0%,     /* soft green at bottom */
-    rgba(0, 0, 0, 0.45) 60%,        /* dark fade in middle */
-    rgba(0, 255, 150, 0.2) 100%     /* mint tint at top */
+    rgba(0, 255, 100, 0.25) 0%,
+    rgba(0, 0, 0, 0.45) 60%,
+    rgba(0, 255, 150, 0.2) 100%
   );
   mix-blend-mode: overlay;
   z-index: 2;
 }
-  
-/* ---- Top 40% ---- */
 .top{
   flex:0 0 40%;
   display:flex;
@@ -64,7 +77,6 @@ body{
   padding:10px 20px 0 20px;
   z-index:2;
 }
-
 header{
   width:100%;
   display:flex;
@@ -91,13 +103,9 @@ header{
   0%{transform:scale(1);opacity:1;}
   100%{transform:scale(2.5);opacity:0;}
 }
-
-/* Song info */
 .song-info{text-align:center;margin-top:20px;}
 .song-info h2{font-size:22px;font-weight:600;}
 .song-info p{font-size:14px;color:var(--muted);margin-top:4px;}
-
-/* Controls */
 .controls{
   display:flex;
   justify-content:center;
@@ -136,8 +144,6 @@ header{
   0%{transform:scale(1);opacity:0.8;}
   100%{transform:scale(2.4);opacity:0;}
 }
-
-/* ---- Bottom (Image area) ---- */
 .bottom{
   flex:1;
   position:relative;
@@ -156,6 +162,33 @@ header{
   width:100%;height:100%;object-fit:cover;
   transform:translateY(-20px);
 }
+
+/* Tap to retry overlay */
+#retryOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  font-size: 18px;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 100;
+}
+#retryOverlay button {
+  margin-top: 15px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+#retryOverlay button:hover {
+  background: #ff5555;
+}
 </style>
 </head>
 <body>
@@ -164,7 +197,7 @@ header{
   <header>
     <div class="logo"><span>Bihar</span><span>FM</span></div>
     <div class="time" id="timeCounter">00:00</div>
-    <div class="liveStatus"><div class="liveDot"></div><span id="connText">Connectingâ€¦</span></div>
+    <div class="liveStatus"><div class="liveDot"></div><span id="connText">Connecting…</span></div>
   </header>
 
   <div class="song-info">
@@ -192,23 +225,32 @@ header{
   </div>
 </div>
 
+<!-- Retry Overlay -->
+<div id="retryOverlay">
+  <div>Connection lost</div>
+  <button id="retryBtn">Tap to Retry</button>
+</div>
+
 <audio id="player" autoplay></audio>
 
 <script>
-const WS_URL="wss://fmconnector.onrender.com";
-const player=document.getElementById("player");
-const connText=document.getElementById("connText");
-const playBtn=document.getElementById("playPauseBtn");
-const playIcon=document.getElementById("playIcon");
-const pauseIcon=document.getElementById("pauseIcon");
-const songTitle=document.getElementById("songTitle");
-const artistName=document.getElementById("artistName");
-const coverImg=document.getElementById("coverImg");
-const timeCounter=document.getElementById("timeCounter");
-let pc=null,playing=false;
-let reconnectTimeout=null;
+const WS_URL = "wss://fmconnector.onrender.com";
+const player = document.getElementById("player");
+const connText = document.getElementById("connText");
+const playBtn = document.getElementById("playPauseBtn");
+const playIcon = document.getElementById("playIcon");
+const pauseIcon = document.getElementById("pauseIcon");
+const songTitle = document.getElementById("songTitle");
+const artistName = document.getElementById("artistName");
+const coverImg = document.getElementById("coverImg");
+const timeCounter = document.getElementById("timeCounter");
+const retryOverlay = document.getElementById("retryOverlay");
+const retryBtn = document.getElementById("retryBtn");
 
-/* Update audio timer */
+let pc = null, playing = false;
+let reconnectTimeout = null, reconnecting = false, retryCount = 0;
+
+/* Timer */
 setInterval(()=>{
   if(player && !isNaN(player.currentTime)){
     const t=Math.floor(player.currentTime);
@@ -219,12 +261,15 @@ setInterval(()=>{
 },1000);
 
 function connectWS(){
-  const socket=new WebSocket(WS_URL);
+  reconnecting = false;
+  retryOverlay.style.display="none";
+  const socket = new WebSocket(WS_URL);
   connText.textContent="Connecting";
 
   socket.onopen=()=>{
     socket.send(JSON.stringify({type:"register",role:"listener"}));
     connText.textContent="Waiting for stream";
+    retryCount = 0;
   };
 
   socket.onmessage=async e=>{
@@ -261,11 +306,25 @@ function connectWS(){
 }
 
 function handleDisconnect(){
-  connText.textContent="Reconnecting";
+  if(reconnecting) return;
+  reconnecting = true;
+  connText.textContent="Reconnecting...";
   if(pc){pc.close();pc=null;}
-  if(reconnectTimeout)clearTimeout(reconnectTimeout);
-  reconnectTimeout=setTimeout(connectWS,3000);
+  if(reconnectTimeout) clearTimeout(reconnectTimeout);
+
+  retryCount++;
+  if(retryCount <= 5){
+    reconnectTimeout=setTimeout(()=>{ connectWS(); }, 3000);
+  } else {
+    retryOverlay.style.display="flex";
+  }
 }
+
+/* Tap to Retry */
+retryBtn.onclick=()=>{
+  retryCount = 0;
+  connectWS();
+};
 
 /* Play / Pause */
 playBtn.onclick=async()=>{
@@ -288,7 +347,7 @@ player.addEventListener("play",()=>{
 });
 
 /* Share + Chat */
-document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:" Listen now",url:location.href});};
+document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"Listen now",url:location.href});};
 document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
 
 /* Initial connect */
@@ -296,5 +355,3 @@ connectWS();
 </script>
 </body>
 </html>
-
-
