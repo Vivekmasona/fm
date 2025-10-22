@@ -1,746 +1,300 @@
 <!doctype html>
-
-  
-  
-  <meta charset="UTF-8">
+<html lang="en">
+<head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-  
-  
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
-
-<style>:root {
-  --bg: #0a0a0a;
-  --accent: #ff2b2b;
-  --text: #f1f1f1;
-  --green: #00ff80;
-  --red: #ff4040;
+<title>BiharFM ” Live</title>
+<style>
+:root {
+  --accent:#ff2b2b;
+  --text:#fff;
+  --muted:#bbb;
+  --bg:#0a0a0f;
+  --card:#151520;
 }
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-
-html, body {
-  height: 100%;
-  overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Poppins", sans-serif;
-  touch-action: manipulation;
-}
-
-/* ===== HEADER ===== */
-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 60px;
-  background: #111;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  z-index: 20;
-  box-shadow: 0 2px 10px #000;
-}
-
-header .logo {
-  font-weight: 700;
-  color: var(--accent);
-  font-size: 1.1rem;
-  letter-spacing: 0.5px;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  font-size: 0.9rem;
-}
-
-#quality {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid #222;
-  color: #eee;
-  padding: 5px 8px;
-  border-radius: 6px;
-  min-width: 90px;
-  text-align: center;
-}
-
-#listeners {
-  color: #ddd;
-  font-weight: 500;
-}
-
-#statusDot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--red);
-  box-shadow: 0 0 10px var(--red);
-  position: relative;
-}
-
-#statusDot.loading::after {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: -5px;
-  width: 24px;
-  height: 24px;
-  border: 2px solid rgba(255, 255, 255, 0.15);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* ===== SIDEBAR ===== */
-.sidebar {
-  position: fixed;
-  top: 60px;
-  bottom: 70px;
-  left: 0;
-  width: 90px;
-  background: #141414;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-evenly;
-  padding: 10px 0;
-  box-shadow: inset -1px 0 10px #000;
-  z-index: 15;
-}
-
-.sidebar button {
-  background: #1f1f1f;
-  border: none;
-  color: var(--text);
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.sidebar button:hover {
-  background: var(--accent);
-  color: #000;
-}
-
-.sidebar input[type="range"] {
-  writing-mode: bt-lr;
-  -webkit-appearance: slider-vertical;
-  height: 100px;
-  width: 6px;
-  accent-color: var(--accent);
-}
-
-.sidebar select {
-  background: #1b1b1b;
-  border: none;
-  color: #ddd;
-  padding: 6px 8px;
-  border-radius: 8px;
-  width: 70px;
-  font-size: 0.8rem;
-}
-
-/* ===== MAIN PLAYLIST ===== */
-main {
-  position: absolute;
-  top: 60px;
-  bottom: 70px;
-  left: 90px;
-  right: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  scroll-behavior: smooth;
-}
-
-.song {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: #161616;
-  padding: 8px 10px;
-  border-radius: 8px;
-  transition: all 0.18s;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.song:hover {
-  transform: translateY(-2px);
-  background: #1f1f1f;
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:'Poppins',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  height:100vh;width:100vw;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
 }
 
 .cover {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-  background: #222 center/cover no-repeat;
-  flex-shrink: 0;
-}
-
-.meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.title {
-  font-weight: 600;
-  font-size: 0.95rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.artist {
-  font-size: 0.82rem;
-  color: #aaa;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.live-badge {
-  background: var(--accent);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  animation: badgePulse 1.2s infinite;
-}
-
-@keyframes badgePulse {
-  0%, 100% { opacity: 1 }
-  50% { opacity: 0.45 }
-}
-
-.song.active {
-  border-left: 3px solid var(--accent);
-  background: #1b1b1b;
-}
-
-/* ===== FOOTER ===== */
-footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 70px;
-  background: #111;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  z-index: 20;
-  box-shadow: 0 -2px 10px #000;
-}
-
-.icon-btn {
-  background: #1a1a1a;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 18px;
-  transition: 0.2s;
-}
-
-.icon-btn:hover {
-  background: var(--accent);
-  color: #000;
-}
-
-.live-btn {
-  background: #444;
-  width: 78px;
-  height: 78px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 20px;
-  position: relative;
-  cursor: pointer;
-  transition: 0.3s;
-}
-
-.live-btn.active {
-  background: var(--accent);
-  box-shadow: 0 0 18px rgba(255, 43, 43, 0.7);
-}
-
-.live-btn.active::before {
-  content: "";
-  position: absolute;
   width: 100%;
   height: 100%;
-  border-radius: 50%;
-  background: rgba(255, 43, 43, 0.35);
-  animation: ripple 1.6s infinite;
+  position: relative;
+  overflow: hidden;
 }
 
-@keyframes ripple {
-  0% { transform: scale(1); opacity: 1 }
-  100% { transform: scale(2); opacity: 0 }
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: translateY(-20px);
+  filter: blur(4px); /* ðŸ”¹ Added blur */
+  scale: 1.05;       /* slight zoom to hide edge blur */
 }
 
-/* ===== SCROLLBAR ===== */
-::-webkit-scrollbar {
-  width: 6px;
+/* Gradient Overlay (bhantai + green tone) */
+.cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(0, 255, 100, 0.25) 0%,     /* soft green at bottom */
+    rgba(0, 0, 0, 0.45) 60%,        /* dark fade in middle */
+    rgba(0, 255, 150, 0.2) 100%     /* mint tint at top */
+  );
+  mix-blend-mode: overlay;
+  z-index: 2;
 }
-::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 10px;
+  
+/* ---- Top 40% ---- */
+.top{
+  flex:0 0 40%;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px 20px 0 20px;
+  z-index:2;
 }
 
-/* ===== RESPONSIVE ===== */
-@media (max-width: 600px) {
-  .sidebar {
-    width: 70px;
-  }
-  main {
-    left: 70px;
-  }
-  .live-btn {
-    width: 70px;
-    height: 70px;
-  }
-  .sidebar button {
-    width: 48px;
-    height: 48px;
-  }
-}</style>
+header{
+  width:100%;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+.logo{font-size:20px;font-weight:700;}
+.logo span:first-child{color:#fff;}
+.logo span:last-child{color:var(--accent);}
+.time{font-size:15px;color:var(--muted);}
+.liveStatus{display:flex;align-items:center;gap:6px;color:var(--muted);}
+.liveDot{
+  width:10px;height:10px;border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 10px var(--accent);
+  position:relative;
+}
+.liveDot::after{
+  content:"";position:absolute;inset:0;border-radius:50%;
+  background:rgba(255,0,0,0.4);
+  animation:ripple 1.4s ease-out infinite;
+}
+@keyframes ripple{
+  0%{transform:scale(1);opacity:1;}
+  100%{transform:scale(2.5);opacity:0;}
+}
 
+/* Song info */
+.song-info{text-align:center;margin-top:20px;}
+.song-info h2{font-size:22px;font-weight:600;}
+.song-info p{font-size:14px;color:var(--muted);margin-top:4px;}
 
-<header>
-  Bihar FM Studio
-  <div class="header-right">
-    <div id="quality" class="small">Quality: 64 kbps</div>
-    <div id="listeners" class="small">Listeners: 0</div>
-    <div id="statusDot"></div>
+/* Controls */
+.controls{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  gap:35px;
+  margin-bottom:20px;
+}
+.btn{
+  width:60px;height:60px;border-radius:18px;
+  background:var(--card);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  box-shadow:inset 2px 2px 5px rgba(255,255,255,0.05),
+             4px 4px 10px rgba(0,0,0,0.4);
+  transition:0.25s;
+}
+.btn:hover{transform:scale(1.08);}
+.btn svg{width:26px;height:26px;fill:var(--text);}
+.play{
+  position:relative;
+  width:78px;height:78px;border-radius:50%;
+  background:linear-gradient(90deg,#ff3c3c,#ff8888);
+  box-shadow:0 0 20px rgba(255,0,0,0.4);
+}
+.play svg{fill:#fff;width:80px;height:80px;}
+.play.playing::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:50%;
+  background:rgba(255,50,50,0.4);
+  animation:wavePulse 1.5s infinite ease-out;
+  z-index:-1;
+}
+@keyframes wavePulse{
+  0%{transform:scale(1);opacity:0.8;}
+  100%{transform:scale(2.4);opacity:0;}
+}
+
+/* ---- Bottom (Image area) ---- */
+.bottom{
+  flex:1;
+  position:relative;
+  overflow:hidden;
+}
+.bottom::before{
+  content:"";
+  position:absolute;
+  top:-50px;left:0;width:100%;height:100px;
+  background:var(--bg);
+  border-radius:0 0 100% 100%;
+  z-index:1;
+}
+.cover{width:100%;height:100%;overflow:hidden;}
+.cover img{
+  width:100%;height:100%;object-fit:cover;
+  transform:translateY(-20px);
+}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <header>
+    <div class="logo"><span>Bihar</span><span>FM</span></div>
+    <div class="time" id="timeCounter">00:00</div>
+    <div class="liveStatus"><div class="liveDot"></div><span id="connText">Connectingâ€¦</span></div>
+  </header>
+
+  <div class="song-info">
+    <h2 id="songTitle">Bihar FM</h2>
+    <p id="artistName">By Vivekfy</p>
   </div>
-</header>
 
-<div class="sidebar">
-  <button id="prevBtn" title="Previous"><i class="fa-solid fa-backward"></i></button>
-  <button id="playPause" title="Play/Pause"><i class="fa-solid fa-play"></i></button>
-  <button id="nextBtn" title="Next"><i class="fa-solid fa-forward"></i></button>
-
-  <input id="seek" type="range" min="0" max="100" value="0" title="Seek" />
-  <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" title="Volume" />
-  <input id="speed" type="range" min="0.5" max="2" step="0.1" value="1" title="Speed" />
-  <select id="qualitySel" title="Audio Quality">
-    <option value="32000" />Low
-    <option value="64000" selected />Medium
-    <option value="128000" />High
-    <option value="192000" />Ultra
-  </select>
+  <div class="controls">
+    <div class="btn" id="shareBtn" title="Share">
+      <svg viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7a2.48 2.48 0 000-1.39l7.02-4.11A2.5 2.5 0 1014.5 5a2.5 2.5 0 00.04.42L7.52 9.53a2.5 2.5 0 100 4.94l7.02 4.11a2.5 2.5 0 102.46-2.5z"/></svg>
+    </div>
+    <div class="btn play" id="playPauseBtn" title="Play / Pause">
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pauseIcon" viewBox="0 0 24 24" style="display:none;"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </div>
+    <div class="btn" id="chatBtn" title="Chat">
+      <svg viewBox="0 0 24 24"><path d="M20.52 3.48A11.85 11.85 0 0012 0C5.37 0 0 5.37 0 12a11.8 11.8 0 001.68 6.05L0 24l6.14-1.6A11.88 11.88 0 0012 24c6.63 0 12-5.37 12-12 0-3.2-1.25-6.22-3.48-8.52z"/></svg>
+    </div>
+  </div>
 </div>
 
-<main id="playlist"></main>
+<div class="bottom">
+  <div class="cover">
+    <img id="coverImg" src="https://i.ibb.co/84nfStqz/images-4.jpg" alt="Cover">
+  </div>
+</div>
 
-<footer>
-  <label for="fileInput" class="icon-btn" title="Upload songs"><i class="fa-solid fa-upload"></i></label>
-  <input id="fileInput" type="file" accept="audio/*" multiple hidden />
-
-  <div id="goLive" class="live-btn" title="Go Live"><i class="fa-solid fa-broadcast-tower"></i></div>
-  <div id="micBtn" class="icon-btn" title="Mic"><i class="fa-solid fa-microphone"></i></div>
-  <div id="reconnectBtn" class="icon-btn" title="Reconnect"><i class="fa-solid fa-rotate-right"></i></div>
-</footer>
-
-<!-- hidden audio element used for capture -->
-<audio id="player" crossorigin="anonymous"></audio>
+<audio id="player" autoplay></audio>
 
 <script>
-/*
-  BiharFM Broadcaster
-  - WebSocket + WebRTC
-  - Auto metadata sync (title, artist, cover)
-  - Mic mix, reconnect, bitrate control
-*/
+const WS_URL="wss://fmconnector.onrender.com";
+const player=document.getElementById("player");
+const connText=document.getElementById("connText");
+const playBtn=document.getElementById("playPauseBtn");
+const playIcon=document.getElementById("playIcon");
+const pauseIcon=document.getElementById("pauseIcon");
+const songTitle=document.getElementById("songTitle");
+const artistName=document.getElementById("artistName");
+const coverImg=document.getElementById("coverImg");
+const timeCounter=document.getElementById("timeCounter");
+let pc=null,playing=false;
+let reconnectTimeout=null;
 
-const WS_URL = "wss://fmconnector.onrender.com";
+/* Update audio timer */
+setInterval(()=>{
+  if(player && !isNaN(player.currentTime)){
+    const t=Math.floor(player.currentTime);
+    const m=Math.floor(t/60).toString().padStart(2,"0");
+    const s=(t%60).toString().padStart(2,"0");
+    timeCounter.textContent=`${m}:${s}`;
+  }
+},1000);
 
-// DOM refs
-const statusDot = document.getElementById("statusDot");
-const listenersEl = document.getElementById("listeners");
-const qualityDisplay = document.getElementById("quality");
-const qualitySel = document.getElementById("qualitySel");
-const fileInput = document.getElementById("fileInput");
-const playlistEl = document.getElementById("playlist");
-const prevBtn = document.getElementById("prevBtn");
-const playPauseBtn = document.getElementById("playPause");
-const nextBtn = document.getElementById("nextBtn");
-const seek = document.getElementById("seek");
-const volume = document.getElementById("volume");
-const speed = document.getElementById("speed");
-const goLiveBtn = document.getElementById("goLive");
-const micBtn = document.getElementById("micBtn");
-const reconnectBtn = document.getElementById("reconnectBtn");
-const player = document.getElementById("player");
+function connectWS(){
+  const socket=new WebSocket(WS_URL);
+  connText.textContent="Connecting";
 
-// state
-let ws = null;
-let pcs = new Map();
-let playlist = [];
-let tracksMeta = [];
-let currentIndex = -1;
-let localStream = null;
-let currentTrack = null;
-let micStream = null;
-let micEnabled = false;
-let peerCount = 0;
-let currentBitrate = parseInt(qualitySel.value) || 64000;
-
-// --- WebSocket connect + auto reconnect ---
-function connectWS() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
-  ws = new WebSocket(WS_URL);
-  setStatusLoading(true);
-
-  ws.onopen = () => {
-    setStatusConnected(true);
-    ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
+  socket.onopen=()=>{
+    socket.send(JSON.stringify({type:"register",role:"listener"}));
+    connText.textContent="Waiting for stream";
   };
 
-  ws.onclose = () => {
-    setStatusConnected(false);
-    console.warn("WS closed, reconnecting...");
-    setTimeout(connectWS, 2000);
-  };
-
-  ws.onerror = (e) => {
-    console.warn("WS error", e);
-    setStatusConnected(false);
-  };
-
-  ws.onmessage = async (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      handleWSMessage(msg);
-    } catch (e) {
-      console.warn("Invalid WS message", e);
+  socket.onmessage=async e=>{
+    const msg=JSON.parse(e.data);
+    if(msg.type==="offer"){
+      connText.textContent="Connecting Stream";
+      pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+      pc.ontrack=ev=>{
+        player.srcObject=ev.streams[0];
+        player.play().catch(()=>{});
+        connText.textContent="Live";
+      };
+      pc.onicecandidate=ev=>{
+        if(ev.candidate)
+          socket.send(JSON.stringify({type:"candidate",target:msg.from,payload:ev.candidate}));
+      };
+      await pc.setRemoteDescription(msg.payload);
+      const ans=await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      socket.send(JSON.stringify({type:"answer",target:msg.from,payload:ans}));
+    }
+    if(msg.type==="candidate"&&pc){
+      await pc.addIceCandidate(msg.payload).catch(()=>{});
+    }
+    if(msg.type==="metadata"){
+      if(msg.title)songTitle.textContent=msg.title;
+      if(msg.artist)artistName.textContent=msg.artist;
+      if(msg.cover)coverImg.src=msg.cover;
     }
   };
+
+  socket.onclose=()=>handleDisconnect();
+  socket.onerror=()=>handleDisconnect();
 }
+
+function handleDisconnect(){
+  connText.textContent="Reconnecting";
+  if(pc){pc.close();pc=null;}
+  if(reconnectTimeout)clearTimeout(reconnectTimeout);
+  reconnectTimeout=setTimeout(connectWS,3000);
+}
+
+/* Play / Pause */
+playBtn.onclick=async()=>{
+  if(playing) player.pause();
+  else {
+    try{await player.play();}catch(e){}
+  }
+};
+player.addEventListener("pause",()=>{
+  playing=false;
+  playBtn.classList.remove("playing");
+  playIcon.style.display="block";
+  pauseIcon.style.display="none";
+});
+player.addEventListener("play",()=>{
+  playing=true;
+  playBtn.classList.add("playing");
+  playIcon.style.display="none";
+  pauseIcon.style.display="block";
+});
+
+/* Share + Chat */
+document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:" Listen now",url:location.href});};
+document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
+
+/* Initial connect */
 connectWS();
-
-// --- Handle WS messages ---
-async function handleWSMessage(msg) {
-  if (!msg.type) return;
-
-  if (msg.type === "listener-joined") {
-    peerCount++;
-    updateListenersUI();
-    if (msg.id) await makePeer(msg.id);
-  } else if (msg.type === "peer-left") {
-    peerCount = Math.max(0, peerCount - 1);
-    updateListenersUI();
-    if (msg.id && pcs.has(msg.id)) {
-      pcs.get(msg.id).close();
-      pcs.delete(msg.id);
-    }
-  } else if (msg.type === "answer") {
-    const pc = pcs.get(msg.from);
-    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(() => {});
-  } else if (msg.type === "candidate") {
-    const pc = pcs.get(msg.from);
-    if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
-  }
-}
-
-// --- UI helpers ---
-function updateListenersUI() {
-  listenersEl.textContent = `Listeners: ${peerCount}`;
-}
-function setStatusLoading(flag) {
-  if (flag) statusDot.classList.add("loading");
-  else statusDot.classList.remove("loading");
-}
-function setStatusConnected(connected) {
-  setStatusLoading(false);
-  if (connected) {
-    statusDot.style.background = "var(--green)";
-    statusDot.style.boxShadow = "0 0 10px var(--green)";
-  } else {
-    statusDot.style.background = "var(--red)";
-    statusDot.style.boxShadow = "0 0 10px var(--red)";
-  }
-}
-
-reconnectBtn.onclick = () => {
-  setStatusLoading(true);
-  setStatusConnected(false);
-  if (ws) try { ws.close(); } catch (e) {}
-  setTimeout(connectWS, 900);
-};
-
-// --- File upload + metadata read ---
-fileInput.addEventListener("change", (e) => {
-  const files = Array.from(e.target.files || []);
-  playlist = files;
-  tracksMeta = files.map(f => ({
-    title: f.name.replace(/\.[^/.]+$/, ""),
-    artist: "Unknown Artist",
-    cover: null,
-    file: f
-  }));
-  playlistEl.innerHTML = "";
-
-  files.forEach((file, idx) => {
-    const item = document.createElement("div");
-    item.className = "song";
-    item.dataset.index = idx;
-    item.innerHTML = `
-      <div class="cover" id="cover-${idx}" style="background-image:url('https://cdn-icons-png.flaticon.com/512/727/727245.png')"></div>
-      <div class="meta">
-        <div class="title" id="title-${idx}">${tracksMeta[idx].title}</div>
-        <div class="artist" id="artist-${idx}">${tracksMeta[idx].artist}</div>
-      </div>
-    `;
-    item.addEventListener("click", () => playSong(idx));
-    playlistEl.appendChild(item);
-
-    jsmediatags.read(file, {
-      onSuccess: (tag) => {
-        const t = tag.tags || {};
-        const title = t.title || tracksMeta[idx].title;
-        const artist = t.artist || "Unknown Artist";
-        tracksMeta[idx].title = title;
-        tracksMeta[idx].artist = artist;
-        const titleEl = document.getElementById(`title-${idx}`);
-        const artistEl = document.getElementById(`artist-${idx}`);
-        if (titleEl) titleEl.textContent = title;
-        if (artistEl) artistEl.textContent = artist;
-
-        if (t.picture && t.picture.data) {
-          const data = t.picture.data;
-          const format = t.picture.format || "image/jpeg";
-          let base64 = "";
-          for (let i = 0; i < data.length; i++) base64 += String.fromCharCode(data[i]);
-          const url = `data:${format};base64,${btoa(base64)}`;
-          tracksMeta[idx].cover = url;
-          const coverEl = document.getElementById(`cover-${idx}`);
-          if (coverEl) coverEl.style.backgroundImage = `url(${url})`;
-        }
-      }
-    });
-  });
-});
-
-// --- Playback controls ---
-playPauseBtn.addEventListener("click", async () => {
-  if (!player.src) return;
-  if (player.paused) {
-    await player.play();
-    playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-  } else {
-    player.pause();
-    playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-  }
-});
-prevBtn.onclick = () => { if (currentIndex > 0) playSong(currentIndex - 1); };
-nextBtn.onclick = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); };
-seek.oninput = () => {
-  if (player.duration) player.currentTime = (seek.value / 100) * player.duration;
-};
-player.ontimeupdate = () => {
-  if (player.duration) seek.value = (player.currentTime / player.duration) * 100;
-};
-player.onended = () => {
-  if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1);
-  else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-};
-volume.oninput = () => player.volume = volume.value;
-speed.oninput = () => player.playbackRate = speed.value;
-
-// --- Quality selector ---
-qualitySel.onchange = (e) => {
-  currentBitrate = parseInt(e.target.value || 64000);
-  qualityDisplay.textContent = `Quality: ${Math.round(currentBitrate / 1000)} kbps`;
-  setAllSendersBitrate(currentBitrate);
-};
-
-// --- Play song + send metadata ---
-async function playSong(i) {
-  if (!playlist[i]) return;
-  currentIndex = i;
-  const file = playlist[i];
-  player.src = URL.createObjectURL(file);
-  await player.play();
-  playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-
-  document.querySelectorAll(".song").forEach(el => el.classList.remove("active"));
-  const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
-  if (el) el.classList.add("active");
-
-  updateLiveBadge(i);
-
-  const stream = player.captureStream();
-  localStream = stream;
-  currentTrack = stream.getAudioTracks()[0];
-  await updateAllPeersTrack();
-
-  // 🔴 Send metadata to listeners
-  const meta = tracksMeta[i] || {};
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: "metadata",
-      payload: {
-        title: meta.title || "Unknown",
-        artist: meta.artist || "Unknown Artist",
-        cover: meta.cover || ""
-      }
-    }));
-  }
-}
-
-// --- Live badge ---
-function updateLiveBadge(i) {
-  document.querySelectorAll(".song .live-badge").forEach(n => n.remove());
-  const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
-  if (!el) return;
-  const badge = document.createElement("div");
-  badge.className = "live-badge";
-  badge.textContent = "LIVE";
-  el.appendChild(badge);
-}
-
-// --- Mic mixing ---
-micBtn.onclick = async () => {
-  if (!micEnabled) {
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ctx = new AudioContext();
-      const dest = ctx.createMediaStreamDestination();
-      const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : ctx.createMediaElementSource(player);
-      const micSrc = ctx.createMediaStreamSource(micStream);
-      const gMusic = ctx.createGain(), gMic = ctx.createGain();
-      gMusic.gain.value = 0.2; gMic.gain.value = 0.9;
-      musicSrc.connect(gMusic).connect(dest);
-      micSrc.connect(gMic).connect(dest);
-      localStream = dest.stream;
-      currentTrack = localStream.getAudioTracks()[0];
-      await updateAllPeersTrack();
-      micEnabled = true;
-      micBtn.style.background = "var(--green)";
-    } catch (e) { alert("Mic access denied"); }
-  } else {
-    if (micStream) micStream.getTracks().forEach(t => t.stop());
-    micEnabled = false;
-    micStream = null;
-    micBtn.style.background = "";
-    const ctx = new AudioContext();
-    const dest = ctx.createMediaStreamDestination();
-    const src = ctx.createMediaElementSource(player);
-    src.connect(dest);
-    localStream = dest.stream;
-    currentTrack = localStream.getAudioTracks()[0];
-    await updateAllPeersTrack();
-  }
-};
-
-// --- WebRTC + bitrate helpers ---
-async function makePeer(id) {
-  if (!id) return;
-  if (pcs.has(id)) {
-    const existing = pcs.get(id);
-    if (existing.iceConnectionState === "closed") pcs.delete(id);
-    else return;
-  }
-  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-  pcs.set(id, pc);
-
-  try { if (currentTrack && localStream) pc.addTrack(currentTrack, localStream); } catch (e) {}
-  pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
-  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) pcs.delete(id); };
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "offer", target: id, payload: pc.localDescription }));
-}
-
-async function updateAllPeersTrack() {
-  if (!currentTrack) return;
-  for (const [id, pc] of pcs.entries()) {
-    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
-    if (sender) {
-      await sender.replaceTrack(currentTrack);
-      setSenderBitrate(sender, currentBitrate);
-    } else {
-      pc.addTrack(currentTrack, localStream);
-    }
-  }
-}
-async function setAllSendersBitrate(bitrate) {
-  for (const pc of pcs.values()) {
-    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
-    if (sender) await setSenderBitrate(sender, bitrate);
-  }
-}
-async function setSenderBitrate(sender, bitrate) {
-  if (!sender || !sender.getParameters) return;
-  try {
-    const p = sender.getParameters();
-    if (!p.encodings) p.encodings = [{}];
-    p.encodings[0].maxBitrate = parseInt(bitrate);
-    await sender.setParameters(p);
-  } catch (e) {}
-}
-
-// --- Broadcast start/stop ---
-goLiveBtn.onclick = () => {
-  const active = goLiveBtn.classList.toggle("active");
-  if (active) startBroadcast();
-  else stopBroadcast();
-};
-async function startBroadcast() {
-  if (!playlist.length) return alert("Please upload songs first");
-  const idx = currentIndex === -1 ? 0 : currentIndex;
-  await playSong(idx);
-}
-function stopBroadcast() {
-  for (const pc of pcs.values()) try { pc.close(); } catch (e) {}
-  pcs.clear();
-  peerCount = 0;
-  updateListenersUI();
-}
-
-// Cleanup
-window.addEventListener("beforeunload", () => {
-  try { ws?.close(); } catch (e) {}
-  pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
-});
-
 </script>
+</body>
+</html>
 
-</!doctype>
+
