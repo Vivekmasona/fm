@@ -4,8 +4,8 @@ const FILES_TO_CACHE = [
   "/index.html",
   "/cast/index.html",
   "/manifest.json",
-  "/img/fm.png",
-  "/img/fm.png"
+  "/192.png",
+  "/512.png"
 ];
 
 // Install
