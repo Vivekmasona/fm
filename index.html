@@ -23,37 +23,6 @@ body{
   flex-direction:column;
 }
 
-.cover {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-}
-
-.cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: translateY(-20px);
-  filter: blur(4px); /* 🔹 Added blur */
-  scale: 1.05;       /* slight zoom to hide edge blur */
-}
-
-/* Gradient Overlay (bhantai + green tone) */
-.cover::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to top,
-    rgba(0, 255, 100, 0.25) 0%,     /* soft green at bottom */
-    rgba(0, 0, 0, 0.45) 60%,        /* dark fade in middle */
-    rgba(0, 255, 150, 0.2) 100%     /* mint tint at top */
-  );
-  mix-blend-mode: overlay;
-  z-index: 2;
-}
-  
 /* ---- Top 40% ---- */
 .top{
   flex:0 0 40%;
@@ -151,10 +120,48 @@ header{
   border-radius:0 0 100% 100%;
   z-index:1;
 }
-.cover{width:100%;height:100%;overflow:hidden;}
-.cover img{
-  width:100%;height:100%;object-fit:cover;
+.cover {
+  width:100%;
+  height:100%;
+  position:relative;
+  overflow:hidden;
+}
+.cover img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
   transform:translateY(-20px);
+  filter: blur(8px); /* 🔹 soft blur */
+  scale: 1.05;
+}
+/* Gradient Overlay (bhantai + green tone) */
+.cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(0, 255, 100, 0.25) 0%,     /* soft green bottom */
+    rgba(0, 0, 0, 0.45) 60%,        /* dark fade */
+    rgba(0, 255, 150, 0.2) 100%     /* mint top */
+  );
+  mix-blend-mode: overlay;
+  z-index: 2;
+}
+
+/* Smooth reactive shake animation */
+@keyframes smoothShake {
+  0%   { transform: translate(0, 0) scale(1.05); }
+  20%  { transform: translate(5px, -5px) scale(1.05); }
+  40%  { transform: translate(-4px, 6px) scale(1.05); }
+  60%  { transform: translate(6px, 3px) scale(1.05); }
+  80%  { transform: translate(-3px, -4px) scale(1.05); }
+  100% { transform: translate(0, 0) scale(1.05); }
+}
+
+/* Apply animation when class 'shake-active' is on cover */
+.cover.shake-active img {
+  animation: smoothShake 1.8s infinite ease-in-out;
 }
 </style>
 </head>
@@ -205,6 +212,7 @@ const songTitle=document.getElementById("songTitle");
 const artistName=document.getElementById("artistName");
 const coverImg=document.getElementById("coverImg");
 const timeCounter=document.getElementById("timeCounter");
+const cover=document.querySelector('.cover');
 let pc=null,playing=false;
 let reconnectTimeout=null;
 
@@ -279,12 +287,17 @@ player.addEventListener("pause",()=>{
   playBtn.classList.remove("playing");
   playIcon.style.display="block";
   pauseIcon.style.display="none";
+  cover.classList.remove("shake-active");
 });
 player.addEventListener("play",()=>{
   playing=true;
   playBtn.classList.add("playing");
   playIcon.style.display="none";
   pauseIcon.style.display="block";
+  cover.classList.add("shake-active");
+});
+player.addEventListener("ended",()=>{
+  cover.classList.remove("shake-active");
 });
 
 /* Share + Chat */
