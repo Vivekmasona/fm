@@ -26,8 +26,10 @@ if ('serviceWorker' in navigator) {
   --card:#e2e2e2;
   --shadow-light:#ffffff;
   --shadow-dark:#b8b8b8;
+  --blur:0px;
+  --gradient:none;
 }
-*{box-sizing:border-box;margin:0;padding:0;}
+*{box-sizing:border-box;margin:0;padding:0;transition:all 0.4s ease;}
 body{
   font-family:'Poppins',sans-serif;
   background:var(--bg);
@@ -38,6 +40,10 @@ body{
   justify-content:flex-start;
   align-items:center;
   overflow:hidden;
+  background-image:var(--gradient);
+  background-size:cover;
+  background-position:center;
+  backdrop-filter:blur(var(--blur));
 }
 
 /* Header */
@@ -66,12 +72,27 @@ header{
 }
 @keyframes ripple{0%{transform:scale(1);opacity:1;}100%{transform:scale(2.5);opacity:0;}}
 
+/* Theme Selector */
+.theme-select {
+  position:absolute;
+  top:16px;
+  right:16px;
+  background:var(--card);
+  border:none;
+  border-radius:12px;
+  padding:6px 10px;
+  font-weight:600;
+  color:#333;
+  box-shadow:2px 2px 5px var(--shadow-dark),-2px -2px 5px var(--shadow-light);
+}
+
 /* Cover */
 .cover{
   width:220px;height:220px;margin-top:40px;
   border-radius:30px;overflow:hidden;
   box-shadow:8px 8px 16px var(--shadow-dark),
              -8px -8px 16px var(--shadow-light);
+  animation:none;
 }
 .cover img{width:100%;height:100%;object-fit:cover;}
 
@@ -147,6 +168,42 @@ header{
 .close-install{
   position:absolute;top:10px;right:18px;color:#777;cursor:pointer;font-size:20px;
 }
+
+/* Theme Variants */
+.theme-glass{
+  --bg:rgba(255,255,255,0.3);
+  --card:rgba(255,255,255,0.2);
+  --text:#fff;
+  --shadow-dark:rgba(0,0,0,0.2);
+  --shadow-light:rgba(255,255,255,0.4);
+  --blur:10px;
+  background:url('https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg') center/cover no-repeat;
+}
+.theme-dark{
+  --bg:#111;
+  --card:#222;
+  --text:#f5f5f5;
+  --shadow-dark:#000;
+  --shadow-light:#333;
+  --accent:#ff2b2b;
+}
+.theme-gradient{
+  --gradient:linear-gradient(135deg,#ff512f,#f09819);
+  --card:rgba(255,255,255,0.2);
+  --text:#fff;
+}
+.theme-overlay{
+  --bg:#333;
+  --card:rgba(255,255,255,0.15);
+  --text:#fff;
+  background-image:linear-gradient(rgba(255,0,0,0.5),rgba(0,0,0,0.5)),
+  url('https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg');
+  background-size:cover;background-position:center;
+}
+.theme-rotate .cover{
+  animation:spin 20s linear infinite;
+}
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
@@ -154,13 +211,21 @@ header{
 <header>
   <div class="logo"><span>Bihar</span><span>FM</span></div>
   <div class="liveStatus"><div class="liveDot"></div><span id="connText">Connecting…</span></div>
+  <select class="theme-select" id="themeSelector">
+    <option value="default">🎧 Neumorphic</option>
+    <option value="theme-glass">🧊 Glassmorphic</option>
+    <option value="theme-dark">🌑 Dark Studio</option>
+    <option value="theme-gradient">🌈 Gradient Glow</option>
+    <option value="theme-overlay">🪞 Overlay Photo</option>
+    <option value="theme-rotate">💫 Rotating Cover</option>
+  </select>
 </header>
 
 <div class="cover"><img id="coverImg" src="https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg" alt="Cover"></div>
 
 <div class="song-info">
   <h2 id="songTitle">Bihar FM</h2>
-  <p id="artistName">online</p>
+  <p id="artistName">By Vivekfy</p>
   <div class="time" id="timeCounter">00:00</div>
 </div>
 
@@ -177,7 +242,6 @@ header{
   </div>
 </div>
 
-<!-- Retry Overlay -->
 <div id="retryOverlay">
   <div>Connection lost</div>
   <button id="retryBtn">Tap to Retry</button>
@@ -185,7 +249,6 @@ header{
 
 <audio id="player" autoplay></audio>
 
-<!-- Install Popup -->
 <div class="install-popup" id="installPopup">
   <div class="close-install" onclick="hideInstallPopup()">×</div>
   <h3>📻 Install BiharFM</h3>
@@ -195,36 +258,35 @@ header{
 
 <script>
 const WS_URL = "wss://fmconnector.onrender.com";
-const player = document.getElementById("player");
-const connText = document.getElementById("connText");
-const playBtn = document.getElementById("playPauseBtn");
-const playIcon = document.getElementById("playIcon");
-const pauseIcon = document.getElementById("pauseIcon");
-const songTitle = document.getElementById("songTitle");
-const artistName = document.getElementById("artistName");
-const coverImg = document.getElementById("coverImg");
-const timeCounter = document.getElementById("timeCounter");
-const retryOverlay = document.getElementById("retryOverlay");
-const retryBtn = document.getElementById("retryBtn");
+const player=document.getElementById("player");
+const connText=document.getElementById("connText");
+const playBtn=document.getElementById("playPauseBtn");
+const playIcon=document.getElementById("playIcon");
+const pauseIcon=document.getElementById("pauseIcon");
+const songTitle=document.getElementById("songTitle");
+const artistName=document.getElementById("artistName");
+const coverImg=document.getElementById("coverImg");
+const timeCounter=document.getElementById("timeCounter");
+const retryOverlay=document.getElementById("retryOverlay");
+const retryBtn=document.getElementById("retryBtn");
 
-let pc = null, playing = false;
-let reconnectTimeout = null, reconnecting = false, retryCount = 0;
-let lastMeta = { title: "", artist: "", cover: "" };
+let pc=null,playing=false,reconnectTimeout=null,reconnecting=false,retryCount=0;
+let lastMeta={title:"",artist:"",cover:""};
 
-/* Restore local metadata if exists */
+/* Restore local metadata */
 window.addEventListener("load",()=>{
-  const saved = localStorage.getItem("lastMeta");
+  const saved=localStorage.getItem("lastMeta");
   if(saved){
-    const meta = JSON.parse(saved);
-    songTitle.textContent = meta.title || "Bihar FM";
-    artistName.textContent = meta.artist || "By Vivekfy";
-    if(meta.cover) coverImg.src = meta.cover;
+    const meta=JSON.parse(saved);
+    songTitle.textContent=meta.title||"Bihar FM";
+    artistName.textContent=meta.artist||"By Vivekfy";
+    if(meta.cover)coverImg.src=meta.cover;
   }
 });
 
 /* Timer */
 setInterval(()=>{
-  if(player && !isNaN(player.currentTime)){
+  if(player&&!isNaN(player.currentTime)){
     const t=Math.floor(player.currentTime);
     const m=Math.floor(t/60).toString().padStart(2,"0");
     const s=(t%60).toString().padStart(2,"0");
@@ -234,15 +296,15 @@ setInterval(()=>{
 
 /* WebRTC Connect */
 function connectWS(){
-  reconnecting = false;
+  reconnecting=false;
   retryOverlay.style.display="none";
-  const socket = new WebSocket(WS_URL);
+  const socket=new WebSocket(WS_URL);
   connText.textContent="Connecting";
 
   socket.onopen=()=>{
     socket.send(JSON.stringify({type:"register",role:"listener"}));
     connText.textContent="Waiting for stream";
-    retryCount = 0;
+    retryCount=0;
   };
 
   socket.onmessage=async e=>{
@@ -254,7 +316,7 @@ function connectWS(){
         player.srcObject=ev.streams[0];
         player.play().catch(()=>{});
         connText.textContent="Live";
-        localStorage.removeItem("lastMeta"); // clear saved meta on success
+        localStorage.removeItem("lastMeta");
       };
       pc.onicecandidate=ev=>{
         if(ev.candidate)
@@ -269,47 +331,42 @@ function connectWS(){
       await pc.addIceCandidate(msg.payload).catch(()=>{});
     }
     if(msg.type==="metadata"){
-      const changed = msg.title!==lastMeta.title || msg.artist!==lastMeta.artist || msg.cover!==lastMeta.cover;
+      const changed=msg.title!==lastMeta.title||msg.artist!==lastMeta.artist||msg.cover!==lastMeta.cover;
       if(msg.title)songTitle.textContent=msg.title;
       if(msg.artist)artistName.textContent=msg.artist;
       if(msg.cover)coverImg.src=msg.cover;
-
       if(changed){
         lastMeta={title:msg.title,artist:msg.artist,cover:msg.cover};
         if(connText.textContent!=="Live"){
-          // Save & reload to reconnect instantly
           localStorage.setItem("lastMeta",JSON.stringify(lastMeta));
           location.reload();
         }
       }
     }
   };
-
   socket.onclose=()=>handleDisconnect();
   socket.onerror=()=>handleDisconnect();
 }
-
 function handleDisconnect(){
-  if(reconnecting) return;
-  reconnecting = true;
+  if(reconnecting)return;
+  reconnecting=true;
   connText.textContent="Reconnecting...";
   if(pc){pc.close();pc=null;}
-  if(reconnectTimeout) clearTimeout(reconnectTimeout);
-  if(playing) player.pause(); // auto pause on disconnect
+  if(reconnectTimeout)clearTimeout(reconnectTimeout);
+  if(playing)player.pause();
   retryCount++;
-  if(retryCount <= 5){
-    reconnectTimeout=setTimeout(()=>{ connectWS(); }, 3000);
-  } else {
+  if(retryCount<=5){
+    reconnectTimeout=setTimeout(()=>{connectWS();},3000);
+  }else{
     retryOverlay.style.display="flex";
   }
 }
-
 retryBtn.onclick=()=>{retryCount=0;connectWS();};
 
 /* Play / Pause */
 playBtn.onclick=async()=>{
-  if(playing) player.pause();
-  else {try{await player.play();}catch(e){}}
+  if(playing)player.pause();
+  else{try{await player.play();}catch(e){}}
 };
 player.addEventListener("pause",()=>{
   playing=false;
@@ -333,9 +390,9 @@ document.getElementById("chatBtn").onclick=()=>{
 };
 
 /* Install Popup */
-let deferredPrompt = null;
-const popup = document.getElementById('installPopup');
-const installBtn = document.getElementById('installBtn');
+let deferredPrompt=null;
+const popup=document.getElementById('installPopup');
+const installBtn=document.getElementById('installBtn');
 window.addEventListener('beforeinstallprompt',(e)=>{
   e.preventDefault();deferredPrompt=e;
   setTimeout(()=>popup.classList.add('show'),1500);
@@ -345,6 +402,12 @@ installBtn.addEventListener('click',async()=>{
   if(deferredPrompt){deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;}
 });
 function hideInstallPopup(){popup.classList.remove('show');}
+
+/* Theme Switcher */
+const themeSel=document.getElementById("themeSelector");
+themeSel.addEventListener("change",()=>{
+  document.body.className=themeSel.value==="default"?"":themeSel.value;
+});
 
 /* Start */
 connectWS();
