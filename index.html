@@ -351,8 +351,8 @@ header{
 
 <!-- LONG PRESS PASSWORD POPUP -->
 <div class="longpress-popup" id="lpPopup" role="dialog" aria-modal="true" aria-labelledby="lpTitle">
-  <h4 id="lpTitle">Enter password to open cast</h4>
-  <p>Long-press detected — password डालकर redirect करो</p>
+  <h4 id="lpTitle">Dashboard</h4>
+  <p> Enter Correct Password</p>
   <input id="lpInput" type="password" placeholder="Password" autocomplete="off" />
   <div class="lp-actions">
     <button class="lp-cancel" id="lpCancel">Cancel</button>
@@ -521,7 +521,7 @@ function hideLongpressPopup() {
 function checkAndRedirect() {
   const val = (lpInput.value || '').trim();
   if (val === 'vivek007') {
-    // correct -> redirect to /cast/index.html
+    // correct -> redirect to
     window.location.href = '/cast/';
   } else {
     // wrong -> shake + clear
