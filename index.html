@@ -39,8 +39,12 @@ body{
   overflow:hidden;
   display:flex;
   flex-direction:column;
+  -webkit-user-select:none; /* prevent select during longpress */
+  user-select:none;
+  touch-action:manipulation;
 }
 
+/* --- existing styles (kept as is) --- */
 .cover {
   width: 100%;
   height: 100%;
@@ -189,6 +193,120 @@ header{
 #retryOverlay button:hover {
   background: #ff5555;
 }
+
+/* --- LONG-PRESS PASSWORD POPUP STYLES --- */
+.longpress-popup {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
+  min-width: 280px;
+  max-width: 90%;
+  background: linear-gradient(180deg, #121218 0%, #17171a 100%);
+  border: 1px solid rgba(255,255,255,0.04);
+  padding: 14px 16px;
+  border-radius: 12px;
+  z-index: 10010;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+  display: none;
+  flex-direction: column;
+  gap:8px;
+  color: var(--text);
+  transition: transform .15s ease, opacity .15s ease;
+  opacity: 0;
+}
+.longpress-popup.show {
+  display: flex;
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+.longpress-popup h4 {
+  margin: 0; font-size: 15px; font-weight: 600;
+}
+.longpress-popup p { margin:0; font-size:13px; color:var(--muted); }
+.longpress-popup input {
+  margin-top:8px;
+  width:100%;
+  padding:10px 12px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.02);
+  color:var(--text);
+  font-size:14px;
+  outline:none;
+}
+.lp-actions{ display:flex; gap:8px; margin-top:10px; justify-content:flex-end; }
+.lp-actions button {
+  padding:8px 12px;border-radius:8px;border:none;cursor:pointer;font-weight:600;
+}
+.lp-cancel { background: transparent; color: #ccc; border: 1px solid rgba(255,255,255,0.03); }
+.lp-submit { background: linear-gradient(90deg,#ff3c3c,#ff8888); color:#fff; box-shadow:0 6px 20px rgba(255,0,0,0.12); }
+
+/* small shake for wrong password */
+@keyframes shake {
+  0%{ transform: translateX(0); }
+  25%{ transform: translateX(-6px); }
+  50%{ transform: translateX(6px); }
+  75%{ transform: translateX(-4px); }
+  100%{ transform: translateX(0); }
+}
+.longpress-popup.wrong { animation: shake .35s; }
+
+/* install popup kept below existing */
+.install-popup {
+  position: fixed;
+  bottom: -200px;
+  left: 0;
+  width: 100%;
+  background: #151520;
+  border-radius: 18px 18px 0 0;
+  color: #fff;
+  box-shadow: 0 -2px 20px rgba(0,0,0,0.6);
+  padding: 18px 20px 24px;
+  transition: bottom 0.4s ease;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.install-popup.show {
+  bottom: 0;
+}
+.install-popup h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #fff;
+}
+.install-popup p {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 14px;
+}
+.install-btn {
+  background: linear-gradient(90deg,#ff3c3c,#ff8888);
+  color: #fff;
+  border: none;
+  outline: none;
+  border-radius: 30px;
+  padding: 10px 24px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 0 15px rgba(255,0,0,0.4);
+}
+.install-btn:hover {
+  transform: scale(1.05);
+}
+.close-install {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  color: #888;
+  cursor: pointer;
+  font-size: 20px;
+}
 </style>
 </head>
 <body>
@@ -231,9 +349,31 @@ header{
   <button id="retryBtn">Tap to Retry</button>
 </div>
 
+<!-- LONG PRESS PASSWORD POPUP -->
+<div class="longpress-popup" id="lpPopup" role="dialog" aria-modal="true" aria-labelledby="lpTitle">
+  <h4 id="lpTitle">Enter password to open cast</h4>
+  <p>Long-press detected — password डालकर redirect करो</p>
+  <input id="lpInput" type="password" placeholder="Password" autocomplete="off" />
+  <div class="lp-actions">
+    <button class="lp-cancel" id="lpCancel">Cancel</button>
+    <button class="lp-submit" id="lpSubmit">Open</button>
+  </div>
+</div>
+
 <audio id="player" autoplay></audio>
 
+<!-- INSTALL POPUP -->
+<div class="install-popup" id="installPopup">
+  <div class="close-install" onclick="hideInstallPopup()">×</div>
+  <h3>📻 Install BiharFM App</h3>
+  <p>Listen live anytime with one tap!</p>
+  <button class="install-btn" id="installBtn">Install Now</button>
+</div>
+
 <script>
+/* ------------------------------
+   Existing WebRTC / Player Code
+   ------------------------------ */
 const WS_URL = "wss://fmconnector.onrender.com";
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
@@ -352,112 +492,127 @@ document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text
 
 /* Initial connect */
 connectWS();
-</script>
-</body>
-</html>
 
+/* ------------------------------
+   LONG-PRESS DETECTION + POPUP
+   ------------------------------ */
+const LP_DURATION = 700; // milliseconds required for long-press
+let lpTimer = null;
+let lpTouchId = null;
 
+const lpPopup = document.getElementById('lpPopup');
+const lpInput = document.getElementById('lpInput');
+const lpCancel = document.getElementById('lpCancel');
+const lpSubmit = document.getElementById('lpSubmit');
 
-
-
-
-
-
-
-
-<!-- 🟢 INSTALL POPUP -->
-<style>
-.install-popup {
-  position: fixed;
-  bottom: -200px;
-  left: 0;
-  width: 100%;
-  background: #151520;
-  border-radius: 18px 18px 0 0;
-  color: #fff;
-  box-shadow: 0 -2px 20px rgba(0,0,0,0.6);
-  padding: 18px 20px 24px;
-  transition: bottom 0.4s ease;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
+function showLongpressPopup() {
+  lpInput.value = '';
+  lpPopup.classList.remove('wrong');
+  lpPopup.classList.add('show');
+  lpInput.focus();
+  // small delay so mobile keyboard opens
+  setTimeout(()=>lpInput.focus(),50);
 }
-.install-popup.show {
-  bottom: 0;
+function hideLongpressPopup() {
+  lpPopup.classList.remove('show','wrong');
 }
-.install-popup h3 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 6px;
-  color: #fff;
-}
-.install-popup p {
-  font-size: 14px;
-  color: #ccc;
-  margin-bottom: 14px;
-}
-.install-btn {
-  background: linear-gradient(90deg,#ff3c3c,#ff8888);
-  color: #fff;
-  border: none;
-  outline: none;
-  border-radius: 30px;
-  padding: 10px 24px;
-  font-weight: 600;
-  font-size: 15px;
-  cursor: pointer;
-  box-shadow: 0 0 15px rgba(255,0,0,0.4);
-}
-.install-btn:hover {
-  transform: scale(1.05);
-}
-.close-install {
-  position: absolute;
-  top: 10px;
-  right: 18px;
-  color: #888;
-  cursor: pointer;
-  font-size: 20px;
-}
-</style>
 
-<div class="install-popup" id="installPopup">
-  <div class="close-install" onclick="hideInstallPopup()">×</div>
-  <h3>📻 Install BiharFM App</h3>
-  <p>Listen live anytime with one tap!</p>
-  <button class="install-btn" id="installBtn">Install Now</button>
-</div>
-
-<script>
-let deferredPrompt = null;
-const popup = document.getElementById('installPopup');
-const installBtn = document.getElementById('installBtn');
-
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  // Always show on page refresh
-  setTimeout(() => popup.classList.add('show'), 1500);
-});
-
-installBtn.addEventListener('click', async () => {
-  popup.classList.remove('show');
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === 'accepted') {
-      console.log("App installed");
-    }
-    deferredPrompt = null;
+/* check password and redirect */
+function checkAndRedirect() {
+  const val = (lpInput.value || '').trim();
+  if (val === 'vivek007') {
+    // correct -> redirect to /cast/index.html
+    window.location.href = '/cast/index.html';
   } else {
-    alert("App can’t be installed manually right now.");
+    // wrong -> shake + clear
+    lpPopup.classList.remove('wrong');
+    void lpPopup.offsetWidth;
+    lpPopup.classList.add('wrong');
+    lpInput.value = '';
+    lpInput.focus();
+  }
+}
+
+/* cancel button */
+lpCancel.addEventListener('click', hideLongpressPopup);
+lpSubmit.addEventListener('click', checkAndRedirect);
+
+/* allow Enter key to submit */
+lpInput.addEventListener('keydown', (ev)=>{
+  if(ev.key === 'Enter') {
+    ev.preventDefault();
+    checkAndRedirect();
+  } else if(ev.key === 'Escape') {
+    hideLongpressPopup();
   }
 });
 
-function hideInstallPopup() {
-  popup.classList.remove('show');
+/* Prevent default context menu (so long-press doesn't open it) */
+window.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+}, {passive:false});
+
+/* Generic handler on document/body for mouse & touch */
+function beginLongPress(e) {
+  // ignore if popup already open
+  if (lpPopup.classList.contains('show')) return;
+  // prevent text-selection on desktop when long press starts
+  if (e.type === 'touchstart' && e.touches && e.touches.length > 0) {
+    lpTouchId = e.touches[0].identifier;
+  }
+  lpTimer = setTimeout(() => {
+    lpTimer = null;
+    showLongpressPopup();
+  }, LP_DURATION);
 }
+
+function cancelLongPress(e) {
+  if (lpTimer) {
+    clearTimeout(lpTimer);
+    lpTimer = null;
+  }
+  lpTouchId = null;
+}
+
+/* Add listeners to full document so anywhere long-press triggers */
+document.addEventListener('touchstart', beginLongPress, {passive: true});
+document.addEventListener('touchend', cancelLongPress, {passive: true});
+document.addEventListener('touchmove', cancelLongPress, {passive: true});
+document.addEventListener('touchcancel', cancelLongPress, {passive: true});
+
+/* For mouse (desktop) */
+document.addEventListener('mousedown', (e) => {
+  // only start for left-click hold (button === 0)
+  if (e.button !== 0) return;
+  beginLongPress(e);
+});
+document.addEventListener('mouseup', cancelLongPress);
+document.addEventListener('mousemove', (e)=>{ /* optional: cancel if moved a lot */
+  // you can implement threshold move-cancel if needed
+}, {passive: true});
+
+/* Accessibility: allow Escape to close popup */
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape') hideLongpressPopup();
+});
+
+/* small helper: if user taps outside popup, close it */
+document.addEventListener('click', (e)=>{
+  if (!lpPopup.classList.contains('show')) return;
+  const within = lpPopup.contains(e.target);
+  if (!within) hideLongpressPopup();
+});
+
+/* Prevent accidental selection on long mousepress (desktop) */
+document.addEventListener('selectstart', (e) => {
+  if (lpTimer) e.preventDefault();
+});
+
+/* Optional: stop long-press if page visibility changes */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) cancelLongPress();
+});
 </script>
 
+</body>
+</html>
