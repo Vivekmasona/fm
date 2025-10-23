@@ -7,18 +7,20 @@
 
 <!-- ✅ PWA Setup -->
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0a0a0f">
+<meta name="theme-color" content="#ffff00">
 <link rel="apple-touch-icon" href="192.png">
-
 <script>
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js')
-    .then(reg => console.log('✅ Service Worker Registered:', reg.scope))
-    .catch(err => console.log('❌ SW registration failed:', err));
-  });
+  navigator.serviceWorker.register('sw.js')
+    .then(()=>console.log('✅ Service Worker Registered'))
+    .catch(console.error);
 }
 </script>
+
+<!-- ⚡ Performance Hints -->
+<meta http-equiv="Cache-Control" content="max-age=3600, must-revalidate">
+<link rel="preconnect" href="wss://fmconnector.onrender.com">
+<link rel="preload" as="image" href="https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg">
 
 <style>
 :root {
@@ -45,31 +47,27 @@ body{
   position: relative;
   overflow: hidden;
 }
-
 .cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transform: translateY(-20px);
-  filter: blur(4px);
+  filter: blur(1px);
   scale: 1.05;
 }
-
-/* Gradient Overlay */
 .cover::after {
   content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(0, 255, 100, 0.25) 0%,
+    rgba(0, 255, 100, 0.25) 40%,
     rgba(0, 0, 0, 0.45) 60%,
     rgba(0, 255, 150, 0.2) 100%
   );
   mix-blend-mode: overlay;
   z-index: 2;
 }
-  
 .top{
   flex:0 0 40%;
   display:flex;
@@ -79,7 +77,6 @@ body{
   padding:10px 20px 0 20px;
   z-index:2;
 }
-
 header{
   width:100%;
   display:flex;
@@ -106,11 +103,9 @@ header{
   0%{transform:scale(1);opacity:1;}
   100%{transform:scale(2.5);opacity:0;}
 }
-
 .song-info{text-align:center;margin-top:20px;}
 .song-info h2{font-size:22px;font-weight:600;}
 .song-info p{font-size:14px;color:var(--muted);margin-top:4px;}
-
 .controls{
   display:flex;
   justify-content:center;
@@ -149,7 +144,6 @@ header{
   0%{transform:scale(1);opacity:0.8;}
   100%{transform:scale(2.4);opacity:0;}
 }
-
 .bottom{
   flex:1;
   position:relative;
@@ -167,6 +161,33 @@ header{
 .cover img{
   width:100%;height:100%;object-fit:cover;
   transform:translateY(-20px);
+}
+
+/* Tap to retry overlay */
+#retryOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  font-size: 18px;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 100;
+}
+#retryOverlay button {
+  margin-top: 15px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+}
+#retryOverlay button:hover {
+  background: #ff5555;
 }
 </style>
 </head>
@@ -200,26 +221,36 @@ header{
 
 <div class="bottom">
   <div class="cover">
-    <img id="coverImg" src="https://i.ibb.co/84nfStqz/images-4.jpg" alt="Cover">
+    <img id="coverImg" src="https://i.ibb.co/Xrv9T57F/happy-woman-listening-music-with-headphones-932695-5594.jpg" alt="Cover">
   </div>
+</div>
+
+<!-- Retry Overlay -->
+<div id="retryOverlay">
+  <div>Connection lost</div>
+  <button id="retryBtn">Tap to Retry</button>
 </div>
 
 <audio id="player" autoplay></audio>
 
 <script>
-const WS_URL="wss://fmconnector.onrender.com";
-const player=document.getElementById("player");
-const connText=document.getElementById("connText");
-const playBtn=document.getElementById("playPauseBtn");
-const playIcon=document.getElementById("playIcon");
-const pauseIcon=document.getElementById("pauseIcon");
-const songTitle=document.getElementById("songTitle");
-const artistName=document.getElementById("artistName");
-const coverImg=document.getElementById("coverImg");
-const timeCounter=document.getElementById("timeCounter");
-let pc=null,playing=false;
-let reconnectTimeout=null;
+const WS_URL = "wss://fmconnector.onrender.com";
+const player = document.getElementById("player");
+const connText = document.getElementById("connText");
+const playBtn = document.getElementById("playPauseBtn");
+const playIcon = document.getElementById("playIcon");
+const pauseIcon = document.getElementById("pauseIcon");
+const songTitle = document.getElementById("songTitle");
+const artistName = document.getElementById("artistName");
+const coverImg = document.getElementById("coverImg");
+const timeCounter = document.getElementById("timeCounter");
+const retryOverlay = document.getElementById("retryOverlay");
+const retryBtn = document.getElementById("retryBtn");
 
+let pc = null, playing = false;
+let reconnectTimeout = null, reconnecting = false, retryCount = 0;
+
+/* Timer */
 setInterval(()=>{
   if(player && !isNaN(player.currentTime)){
     const t=Math.floor(player.currentTime);
@@ -230,12 +261,15 @@ setInterval(()=>{
 },1000);
 
 function connectWS(){
-  const socket=new WebSocket(WS_URL);
+  reconnecting = false;
+  retryOverlay.style.display="none";
+  const socket = new WebSocket(WS_URL);
   connText.textContent="Connecting";
 
   socket.onopen=()=>{
     socket.send(JSON.stringify({type:"register",role:"listener"}));
     connText.textContent="Waiting for stream";
+    retryCount = 0;
   };
 
   socket.onmessage=async e=>{
@@ -272,12 +306,27 @@ function connectWS(){
 }
 
 function handleDisconnect(){
-  connText.textContent="Reconnecting";
+  if(reconnecting) return;
+  reconnecting = true;
+  connText.textContent="Reconnecting...";
   if(pc){pc.close();pc=null;}
-  if(reconnectTimeout)clearTimeout(reconnectTimeout);
-  reconnectTimeout=setTimeout(connectWS,3000);
+  if(reconnectTimeout) clearTimeout(reconnectTimeout);
+
+  retryCount++;
+  if(retryCount <= 5){
+    reconnectTimeout=setTimeout(()=>{ connectWS(); }, 3000);
+  } else {
+    retryOverlay.style.display="flex";
+  }
 }
 
+/* Tap to Retry */
+retryBtn.onclick=()=>{
+  retryCount = 0;
+  connectWS();
+};
+
+/* Play / Pause */
 playBtn.onclick=async()=>{
   if(playing) player.pause();
   else {
@@ -297,10 +346,118 @@ player.addEventListener("play",()=>{
   pauseIcon.style.display="block";
 });
 
-document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:" Listen now",url:location.href});};
+/* Share + Chat */
+document.getElementById("shareBtn").onclick=()=>{if(navigator.share)navigator.share({title:"BiharFM Live",text:"Listen now",url:location.href});};
 document.getElementById("chatBtn").onclick=()=>{window.open("https://wa.me/?text=Listen BiharFM Live "+encodeURIComponent(location.href),"_blank");};
 
+/* Initial connect */
 connectWS();
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+<!-- 🟢 INSTALL POPUP -->
+<style>
+.install-popup {
+  position: fixed;
+  bottom: -200px;
+  left: 0;
+  width: 100%;
+  background: #151520;
+  border-radius: 18px 18px 0 0;
+  color: #fff;
+  box-shadow: 0 -2px 20px rgba(0,0,0,0.6);
+  padding: 18px 20px 24px;
+  transition: bottom 0.4s ease;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.install-popup.show {
+  bottom: 0;
+}
+.install-popup h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #fff;
+}
+.install-popup p {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 14px;
+}
+.install-btn {
+  background: linear-gradient(90deg,#ff3c3c,#ff8888);
+  color: #fff;
+  border: none;
+  outline: none;
+  border-radius: 30px;
+  padding: 10px 24px;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 0 15px rgba(255,0,0,0.4);
+}
+.install-btn:hover {
+  transform: scale(1.05);
+}
+.close-install {
+  position: absolute;
+  top: 10px;
+  right: 18px;
+  color: #888;
+  cursor: pointer;
+  font-size: 20px;
+}
+</style>
+
+<div class="install-popup" id="installPopup">
+  <div class="close-install" onclick="hideInstallPopup()">×</div>
+  <h3>📻 Install BiharFM App</h3>
+  <p>Listen live anytime with one tap!</p>
+  <button class="install-btn" id="installBtn">Install Now</button>
+</div>
+
+<script>
+let deferredPrompt = null;
+const popup = document.getElementById('installPopup');
+const installBtn = document.getElementById('installBtn');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Always show on page refresh
+  setTimeout(() => popup.classList.add('show'), 1500);
+});
+
+installBtn.addEventListener('click', async () => {
+  popup.classList.remove('show');
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === 'accepted') {
+      console.log("App installed");
+    }
+    deferredPrompt = null;
+  } else {
+    alert("App can’t be installed manually right now.");
+  }
+});
+
+function hideInstallPopup() {
+  popup.classList.remove('show');
+}
+</script>
+
