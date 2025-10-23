@@ -16,23 +16,7 @@ if ('serviceWorker' in navigator) {
     .catch(console.error);
 }
 </script>
-<!-- 🔔 OneSignal Push Notification -->
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-<script>
-  window.OneSignalDeferred = window.OneSignalDeferred || [];
-  OneSignalDeferred.push(async function(OneSignal) {
-    await OneSignal.init({
-      appId: "efdac13c-f527-4e0b-91ce-43eb7927b1c6",  // ✅ tumhara App ID
-      safari_web_id: "web.onesignal.auto.504512c8-952a-4d80-9d02-48e16e3cc659", // optional (for Safari)
-      notifyButton: {
-        enable: true, // 🔔 floating bell dikhega
-        size: 'medium',
-        position: 'bottom-right',
-        theme: 'default',
-      },
-    });
-  });
-</script>
+
 <!-- ⚡ Performance Hints -->
 <meta http-equiv="Cache-Control" content="max-age=3600, must-revalidate">
 <link rel="preconnect" href="wss://fmconnector.onrender.com">
