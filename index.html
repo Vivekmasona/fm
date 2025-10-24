@@ -310,7 +310,13 @@ header{
 </style>
 </head>
 <body>
-
+<!-- INSTALL POPUP -->
+<div class="install-popup" id="installPopup">
+  <div class="close-install" onclick="hideInstallPopup()">×</div>
+  <h3>📻 Install BiharFM App</h3>
+  <p>Listen live anytime with one tap!</p>
+  <button class="install-btn" id="installBtn">Install Now</button>
+</div>
 <div class="top">
   <header>
     <div class="logo"><span>Bihar</span><span>FM</span></div>
@@ -611,6 +617,40 @@ document.addEventListener('selectstart', (e) => {
 /* Optional: stop long-press if page visibility changes */
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) cancelLongPress();
+});
+
+  const installPopup = document.getElementById('installPopup');
+const installBtn = document.getElementById('installBtn');
+
+function showInstallPopup() {
+  installPopup.classList.add('show');
+}
+
+function hideInstallPopup() {
+  installPopup.classList.remove('show');
+}
+
+// Example: auto show after 5 seconds
+setTimeout(showInstallPopup, 5000);
+
+// Optional: hook up "Install Now" button to PWA install prompt
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  showInstallPopup();
+});
+
+installBtn.addEventListener('click', async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log('User choice:', outcome);
+    deferredPrompt = null;
+    hideInstallPopup();
+  } else {
+    alert("Install action not available");
+  }
 });
 </script>
 
