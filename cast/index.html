@@ -346,6 +346,9 @@ footer {
     <div id="quality" class="small">Quality: 64 kbps</div>
     <div id="listeners" class="small">Listeners: 0</div>
     <div id="statusDot"></div>
+
+    <div id="miniHostsCount">Mini Hosts: 0</div>
+<div id="totalListeners">Listeners: 0</div>
   </div>
 </header>
 
@@ -443,6 +446,21 @@ function connectWS() {
     }
   };
 
+let miniHosts = new Set();
+ws.onmessage = (msg) => {
+  const data = JSON.parse(msg.data);
+  if (data.type === "mini-joined") {
+    miniHosts.add(data.id);
+    document.getElementById("miniHostsCount").textContent = `Mini Hosts: ${miniHosts.size}`;
+  } else if (data.type === "mini-left") {
+    miniHosts.delete(data.id);
+    document.getElementById("miniHostsCount").textContent = `Mini Hosts: ${miniHosts.size}`;
+  } else if (data.type === "listener-count") {
+    document.getElementById("totalListeners").textContent = `Listeners: ${data.count}`;
+  }
+};
+
+  
   ws.onclose = () => {
     setStatusConnected(false);
     console.warn("WS closed, reconnecting...");
