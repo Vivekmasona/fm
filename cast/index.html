@@ -339,15 +339,12 @@ footer {
   }
 }</style>
 
-</head>
-<body>
 
 <header>
   Bihar FM Studio
   <div class="header-right">
     <div id="quality" class="small">Quality: 64 kbps</div>
     <div id="listeners" class="small">Listeners: 0</div>
-    <div id="miniCount" class="small">Mini Hosts: 0</div>
     <div id="statusDot"></div>
   </div>
 </header>
@@ -361,10 +358,10 @@ footer {
   <input id="volume" type="range" min="0" max="1" step="0.01" value="0.8" title="Volume" />
   <input id="speed" type="range" min="0.5" max="2" step="0.1" value="1" title="Speed" />
   <select id="qualitySel" title="Audio Quality">
-    <option value="32000">Low</option>
-    <option value="64000" selected>Medium</option>
-    <option value="128000">High</option>
-    <option value="192000">Ultra</option>
+    <option value="32000" />Low
+    <option value="64000" selected />Medium
+    <option value="128000" />High
+    <option value="192000" />Ultra
   </select>
 </div>
 
@@ -381,20 +378,20 @@ footer {
 
 <!-- hidden audio element used for capture -->
 <audio id="player" crossorigin="anonymous"></audio>
-
 <script>
 /*
- broadcaster.html script
- - preserves original UI & features
- - adds mini-host list display (miniCount + miniList)
- - sends periodic sync to server (type: "sync")
- - accepts incoming offers from mini-hosts (so they can uplink if needed)
+  BiharFM Broadcaster
+  - WebSocket + WebRTC
+  - Auto metadata sync (title, artist, cover)
+  - Mic mix, reconnect, bitrate control
+  - Minimal fixes: re-offer on restart / don't clear pcs on stop
 */
+//const WS_URL = "wss://vivekmasona-denotts-96.deno.dev/ws";  
 const WS_URL = "wss://fmconnector.onrender.com";
 
+// DOM refs
 const statusDot = document.getElementById("statusDot");
 const listenersEl = document.getElementById("listeners");
-const miniCountEl = document.getElementById("miniCount");
 const qualityDisplay = document.getElementById("quality");
 const qualitySel = document.getElementById("qualitySel");
 const fileInput = document.getElementById("fileInput");
@@ -410,9 +407,9 @@ const micBtn = document.getElementById("micBtn");
 const reconnectBtn = document.getElementById("reconnectBtn");
 const player = document.getElementById("player");
 
+// state
 let ws = null;
-let pcs = new Map(); // outbound peers (we created offers to)
-let inboundPeers = new Map(); // peers that offered to us (mini-hosts)
+let pcs = new Map();
 let playlist = [];
 let tracksMeta = [];
 let currentIndex = -1;
@@ -422,19 +419,28 @@ let micStream = null;
 let micEnabled = false;
 let peerCount = 0;
 let currentBitrate = parseInt(qualitySel.value) || 64000;
-let miniHosts = []; // list of mini host ids
-let syncInterval = null;
 
+// --- WebSocket connect + auto reconnect ---
 function connectWS() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+
   ws = new WebSocket(WS_URL);
   setStatusLoading(true);
 
   ws.onopen = () => {
     setStatusConnected(true);
     ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
-    // re-offer known peers on reconnect
-    for (const id of Array.from(pcs.keys())) makePeer(id).catch(()=>{});
+
+    // After WS reconnect, try re-offer to all known listener ids (if any)
+    // Using Array.from to avoid mutation during iteration
+    try {
+      for (const id of Array.from(pcs.keys())) {
+        // makePeer will delete closed entries and recreate if needed
+        makePeer(id).catch(() => {});
+      }
+    } catch (e) {
+      console.warn("re-offer on ws.open failed", e);
+    }
   };
 
   ws.onclose = () => {
@@ -459,102 +465,59 @@ function connectWS() {
 }
 connectWS();
 
+// --- Handle WS messages ---
 async function handleWSMessage(msg) {
   if (!msg.type) return;
 
-  // status update (server sends waiting and miniCount)
-  if (msg.type === "status") {
-    const miniCount = msg.miniCount || 0;
-    const waiting = msg.waiting || 0;
-    miniCountEl.textContent = `Mini Hosts: ${miniCount}  | Queue: ${waiting}`;
-    return;
-  }
-
-  // server informs about a new mini-host created
-  if (msg.type === "mini-host-ready") {
-    // record mini id for listing
-    if (!miniHosts.includes(msg.miniId)) miniHosts.push(msg.miniId);
-    updateMiniListUI();
-    return;
-  }
-
-  // server may also send pair-removed when mini-host disappears
-  if (msg.type === "pair-removed" && msg.pairId) {
-    miniHosts = miniHosts.filter(id => id !== msg.pairId);
-    updateMiniListUI();
-    return;
-  }
-
-  // signaling
-  if (msg.type === "offer") {
-    // inbound offer (e.g., from a mini-host wanting an uplink)
-    if (inboundPeers.has(msg.from)) {
-      try { inboundPeers.get(msg.from).close(); } catch(e){}
-      inboundPeers.delete(msg.from);
+  if (msg.type === "listener-joined") {
+    // server says a listener joined — create a peer for them
+    peerCount++;
+    updateListenersUI();
+    if (msg.id) await makePeer(msg.id);
+  } else if (msg.type === "peer-left") {
+    peerCount = Math.max(0, peerCount - 1);
+    updateListenersUI();
+    if (msg.id && pcs.has(msg.id)) {
+      try { pcs.get(msg.id).close(); } catch (e) {}
+      // keep the id in the map if you plan to re-offer later, but remove if closed
+      pcs.delete(msg.id);
     }
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    inboundPeers.set(msg.from, pc);
-    pc.ontrack = (ev) => {
-      // optional: log; avoid playing to prevent feedback
-      console.log("Received track from mini-host", msg.from, ev.streams.length);
-    };
-    pc.onicecandidate = (e) => {
-      if (e.candidate && ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: e.candidate }));
-      }
-    };
-    try {
-      await pc.setRemoteDescription(msg.payload);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: answer }));
-    } catch (err) {
-      console.warn("Failed to answer inbound offer", err);
-    }
-    return;
-  }
-
-  if (msg.type === "answer") {
+  } else if (msg.type === "answer") {
     const pc = pcs.get(msg.from);
-    if (pc && msg.payload) {
-      try { await pc.setRemoteDescription(msg.payload); } catch(e){ console.warn(e); }
-    }
-    return;
-  }
-
-  if (msg.type === "candidate") {
-    const pc = pcs.get(msg.from) || inboundPeers.get(msg.from);
-    if (pc && msg.payload) {
-      try { await pc.addIceCandidate(msg.payload); } catch (e) { console.warn(e); }
-    }
-    return;
-  }
-
-  if (msg.type === "metadata") {
-    // master already has metadata; ignore
-    return;
+    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(() => {});
+  } else if (msg.type === "candidate") {
+    const pc = pcs.get(msg.from);
+    if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
   }
 }
 
-// UI helpers
-function setStatusLoading(flag) { if (flag) statusDot.classList.add("loading"); else statusDot.classList.remove("loading"); }
-function setStatusConnected(connected) { setStatusLoading(false); if (connected) { statusDot.style.background="var(--green)"; statusDot.style.boxShadow="0 0 10px var(--green)"; } else { statusDot.style.background="var(--red)"; statusDot.style.boxShadow="0 0 10px var(--red)"; } }
-function updateListenersUI() { listenersEl.textContent = `Listeners: ${peerCount}`; }
-function updateMiniListUI() {
-  // append mini host IDs into playlist element top (or you can create a separate container)
-  // We'll show them in the top of playlist box
-  let container = document.getElementById("miniListContainer");
-  if (!container) {
-    container = document.createElement("div");
-    container.id = "miniListContainer";
-    container.style.padding = "8px";
-    container.style.fontSize = "13px";
-    playlistEl.parentNode.insertBefore(container, playlistEl);
+// --- UI helpers ---
+function updateListenersUI() {
+  listenersEl.textContent = `Listeners: ${peerCount}`;
+}
+function setStatusLoading(flag) {
+  if (flag) statusDot.classList.add("loading");
+  else statusDot.classList.remove("loading");
+}
+function setStatusConnected(connected) {
+  setStatusLoading(false);
+  if (connected) {
+    statusDot.style.background = "var(--green)";
+    statusDot.style.boxShadow = "0 0 10px var(--green)";
+  } else {
+    statusDot.style.background = "var(--red)";
+    statusDot.style.boxShadow = "0 0 10px var(--red)";
   }
-  container.innerHTML = `<strong>Mini Hosts:</strong> ${miniHosts.join(", ") || "None"}`;
 }
 
-// File upload + metadata (kept same)
+reconnectBtn.onclick = () => {
+  setStatusLoading(true);
+  setStatusConnected(false);
+  if (ws) try { ws.close(); } catch (e) {}
+  setTimeout(connectWS, 900);
+};
+
+// --- File upload + metadata read ---
 fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);
   playlist = files;
@@ -580,30 +543,34 @@ fileInput.addEventListener("change", (e) => {
     item.addEventListener("click", () => playSong(idx));
     playlistEl.appendChild(item);
 
-    if (window.jsmediatags) {
-      jsmediatags.read(file, {
-        onSuccess: (tag) => {
-          const t = tag.tags || {};
-          tracksMeta[idx].title = t.title || tracksMeta[idx].title;
-          tracksMeta[idx].artist = t.artist || tracksMeta[idx].artist;
-          if (t.picture && t.picture.data) {
-            const data = t.picture.data;
-            const format = t.picture.format || "image/jpeg";
-            let base64 = "";
-            for (let i = 0; i < data.length; i++) base64 += String.fromCharCode(data[i]);
-            const url = `data:${format};base64,${btoa(base64)}`;
-            tracksMeta[idx].cover = url;
-            document.getElementById(`cover-${idx}`).style.backgroundImage = `url(${url})`;
-          }
-          document.getElementById(`title-${idx}`).textContent = tracksMeta[idx].title;
-          document.getElementById(`artist-${idx}`).textContent = tracksMeta[idx].artist;
+    jsmediatags.read(file, {
+      onSuccess: (tag) => {
+        const t = tag.tags || {};
+        const title = t.title || tracksMeta[idx].title;
+        const artist = t.artist || "Unknown Artist";
+        tracksMeta[idx].title = title;
+        tracksMeta[idx].artist = artist;
+        const titleEl = document.getElementById(`title-${idx}`);
+        const artistEl = document.getElementById(`artist-${idx}`);
+        if (titleEl) titleEl.textContent = title;
+        if (artistEl) artistEl.textContent = artist;
+
+        if (t.picture && t.picture.data) {
+          const data = t.picture.data;
+          const format = t.picture.format || "image/jpeg";
+          let base64 = "";
+          for (let i = 0; i < data.length; i++) base64 += String.fromCharCode(data[i]);
+          const url = `data:${format};base64,${btoa(base64)}`;
+          tracksMeta[idx].cover = url;
+          const coverEl = document.getElementById(`cover-${idx}`);
+          if (coverEl) coverEl.style.backgroundImage = `url(${url})`;
         }
-      });
-    }
+      }
+    });
   });
 });
 
-// Playback controls
+// --- Playback controls ---
 playPauseBtn.addEventListener("click", async () => {
   if (!player.src) return;
   if (player.paused) {
@@ -616,20 +583,27 @@ playPauseBtn.addEventListener("click", async () => {
 });
 prevBtn.onclick = () => { if (currentIndex > 0) playSong(currentIndex - 1); };
 nextBtn.onclick = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); };
-seek.oninput = () => { if (player.duration) player.currentTime = (seek.value / 100) * player.duration; };
-player.ontimeupdate = () => { if (player.duration) seek.value = (player.currentTime / player.duration) * 100; };
-player.onended = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; };
+seek.oninput = () => {
+  if (player.duration) player.currentTime = (seek.value / 100) * player.duration;
+};
+player.ontimeupdate = () => {
+  if (player.duration) seek.value = (player.currentTime / player.duration) * 100;
+};
+player.onended = () => {
+  if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1);
+  else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+};
 volume.oninput = () => player.volume = volume.value;
 speed.oninput = () => player.playbackRate = speed.value;
 
-// Quality selector
+// --- Quality selector ---
 qualitySel.onchange = (e) => {
   currentBitrate = parseInt(e.target.value || 64000);
   qualityDisplay.textContent = `Quality: ${Math.round(currentBitrate / 1000)} kbps`;
   setAllSendersBitrate(currentBitrate);
 };
 
-// Play song + send metadata + start sync loop
+// --- Play song + send metadata ---
 async function playSong(i) {
   if (!playlist[i]) return;
   currentIndex = i;
@@ -649,16 +623,21 @@ async function playSong(i) {
   currentTrack = stream.getAudioTracks()[0];
   await updateAllPeersTrack();
 
-  // send metadata
+  // 🔴 Send metadata to listeners
   const meta = tracksMeta[i] || {};
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "metadata", payload: { title: meta.title || file.name, artist: meta.artist || "Unknown Artist", cover: meta.cover || "" } }));
+    ws.send(JSON.stringify({
+      type: "metadata",
+      payload: {
+        title: meta.title || "Unknown",
+        artist: meta.artist || "Unknown Artist",
+        cover: meta.cover || ""
+      }
+    }));
   }
-
-  // start periodic sync loop (1s)
-  startSyncLoop();
 }
 
+// --- Live badge ---
 function updateLiveBadge(i) {
   document.querySelectorAll(".song .live-badge").forEach(n => n.remove());
   const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
@@ -669,17 +648,7 @@ function updateLiveBadge(i) {
   el.appendChild(badge);
 }
 
-let syncLoopHandle = null;
-function startSyncLoop() {
-  if (syncLoopHandle) clearInterval(syncLoopHandle);
-  syncLoopHandle = setInterval(() => {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: "sync", payload: { song: tracksMeta[currentIndex]?.title || "", currentTime: player.currentTime || 0, playing: !player.paused, speed: player.playbackRate || 1 } }));
-  }, 1000);
-}
-function stopSyncLoop() { if (syncLoopHandle) clearInterval(syncLoopHandle); syncLoopHandle = null; }
-
-// Mic mixing (kept intact)
+// --- Mic mixing ---
 micBtn.onclick = async () => {
   if (!micEnabled) {
     try {
@@ -713,15 +682,17 @@ micBtn.onclick = async () => {
   }
 };
 
-// WebRTC helpers (same API interface)
+// --- WebRTC + bitrate helpers ---
 async function makePeer(id) {
   if (!id) return;
   if (pcs.has(id)) {
     const existing = pcs.get(id);
+    // if existing pc is closed, remove it and allow new one to be created
     try {
       if (existing.iceConnectionState === "closed") pcs.delete(id);
-      else return;
+      else return; // still active, don't recreate
     } catch (e) {
+      // if any error accessing existing state, remove and recreate
       pcs.delete(id);
     }
   }
@@ -730,7 +701,11 @@ async function makePeer(id) {
 
   try { if (currentTrack && localStream) pc.addTrack(currentTrack, localStream); } catch (e) {}
   pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
-  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) { console.warn("pc state", pc.connectionState); } };
+  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) {
+    // keep the entry so we can recreate on restart, but remove if server not interested
+    // do not aggressively clear here
+    console.warn("pc state", pc.connectionState);
+  } };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -746,7 +721,10 @@ async function updateAllPeersTrack() {
         await sender.replaceTrack(currentTrack);
         setSenderBitrate(sender, currentBitrate);
       } catch (e) {
-        try { await makePeer(id); } catch (err) {}
+        // if replaceTrack fails (e.g., pc closed), try recreate
+        try {
+          await makePeer(id);
+        } catch (err) {}
       }
     } else {
       try { pc.addTrack(currentTrack, localStream); } catch (e) {}
@@ -769,42 +747,6 @@ async function setSenderBitrate(sender, bitrate) {
   } catch (e) {}
 }
 
-// Start/stop broadcast
+// --- Broadcast start/stop ---
 goLiveBtn.onclick = () => {
-  const active = goLiveBtn.classList.toggle("active");
-  if (active) startBroadcast();
-  else { stopBroadcast(); stopSyncLoop(); }
-};
-async function startBroadcast() {
-  if (!playlist.length) return alert("Please upload songs first");
-  const idx = currentIndex === -1 ? 0 : currentIndex;
-  await playSong(idx);
-  // re-offer to known outbound peers
-  try { for (const id of Array.from(pcs.keys())) await makePeer(id); } catch(e){}
-}
-function stopBroadcast() {
-  for (const [id, pc] of pcs.entries()) {
-    try { pc.close(); } catch (e) {}
-    // keep entry for re-offer on next start
-  }
-  updateListenersUI();
-}
-
-// reconnect button
-reconnectBtn.onclick = () => {
-  setStatusLoading(true);
-  setStatusConnected(false);
-  if (ws) try { ws.close(); } catch(e) {}
-  setTimeout(connectWS, 900);
-};
-
-// cleanup
-window.addEventListener("beforeunload", () => {
-  try { ws?.close(); } catch (e) {}
-  pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
-  inboundPeers.forEach(pc => { try { pc.close(); } catch (e) {} });
-});
-</script>
-
-</body>
-</html>
+  const active = goLiveBtn.classList.
