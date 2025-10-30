@@ -386,8 +386,8 @@ footer {
   - Auto metadata sync (title, artist, cover)
   - Mic mix, reconnect, bitrate control
 */
-const WS_URL = "wss://vivekmasona-denotts-96.deno.dev/ws";  
-//const WS_URL = "wss://fmconnector.onrender.com";
+//const WS_URL = "wss://vivekmasona-denotts-96.deno.dev/ws";  
+const WS_URL = "wss://fmconnector.onrender.com";
 
 // DOM refs
 const statusDot = document.getElementById("statusDot");
@@ -645,7 +645,7 @@ micBtn.onclick = async () => {
       const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : ctx.createMediaElementSource(player);
       const micSrc = ctx.createMediaStreamSource(micStream);
       const gMusic = ctx.createGain(), gMic = ctx.createGain();
-      gMusic.gain.value = 0.2; gMic.gain.value = 0.9;
+      gMusic.gain.value = 0.1; gMic.gain.value = 0.9;
       musicSrc.connect(gMusic).connect(dest);
       micSrc.connect(gMic).connect(dest);
       localStream = dest.stream;
