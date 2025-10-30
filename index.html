@@ -157,9 +157,9 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 <audio id="player" autoplay></audio>  
 
 
-<script>
-/* Listener script — drop into index.html (replace previous listener script)
-   It receives stream from parent and can act as mini-host when server tells it to.
+        <script>
+/* Listener script — paste into index.html (replace existing listener script)
+   Preserves longpress dashboard and password redirect 'vk007'
 */
 const WS_URL = "wss://fmconnector.onrender.com"; // change if needed
 const player = document.getElementById("player");
@@ -174,29 +174,27 @@ const timeCounter = document.getElementById("timeCounter");
 const retryOverlay = document.getElementById("retryOverlay");
 const retryBtn = document.getElementById("retryBtn");
 
-let ws = null;
-let pc = null;            // pc to parent
-const childrenPCs = new Map(); // childId -> RTCPeerConnection (when this client is a mini-host)
-let assignedParent = null;
-let retryCount = 0;
-
-// longpress popup (unchanged)
+// Keep longpress dashboard logic (password 'vk007')
 let lpTimer = null;
 const lpPopup = document.getElementById("lpPopup");
 const lpInput = document.getElementById("lpInput");
 const lpCancel = document.getElementById("lpCancel");
 const lpSubmit = document.getElementById("lpSubmit");
-function openPopup(){ lpPopup.classList.add("show"); lpInput.focus(); }
-function closePopup(){ lpPopup.classList.remove("show"); }
-document.body.addEventListener("touchstart", ()=>{ lpTimer = setTimeout(openPopup,1500); });
-document.body.addEventListener("touchend", ()=>{ clearTimeout(lpTimer); });
+function openPopup() { lpPopup.classList.add("show"); lpInput.focus(); }
+function closePopup() { lpPopup.classList.remove("show"); }
+document.body.addEventListener("touchstart", () => { lpTimer = setTimeout(openPopup, 1500); });
+document.body.addEventListener("touchend", () => { clearTimeout(lpTimer); });
 lpCancel.onclick = closePopup;
 lpSubmit.onclick = () => {
-  if (lpInput.value === "vk007") window.location.href = "/cast";
-  else { lpPopup.classList.add("wrong"); setTimeout(()=>lpPopup.classList.remove("wrong"),400); }
+  if (lpInput.value === "vk007") {
+    window.location.href = "/cast";
+  } else {
+    lpPopup.classList.add("wrong");
+    setTimeout(()=>lpPopup.classList.remove("wrong"), 400);
+  }
 };
 
-// time counter UI
+// time display updater (keeps your UI timeCounter)
 setInterval(()=> {
   if (player && !isNaN(player.currentTime)) {
     const t = Math.floor(player.currentTime);
@@ -206,7 +204,7 @@ setInterval(()=> {
   }
 }, 1000);
 
-// room badge element (optional)
+// create room badge element (shows Room: fm1234)
 let roomBadge = document.getElementById("roomBadge");
 if (!roomBadge) {
   roomBadge = document.createElement("span");
@@ -218,6 +216,12 @@ if (!roomBadge) {
   roomBadge.style.color = "#ddd";
   if (connText && connText.parentElement) connText.insertAdjacentElement("afterend", roomBadge);
 }
+
+let ws = null;
+let pc = null;
+let reconnectTimer = null;
+let retryCount = 0;
+let assignedRoom = null;
 
 function connectWS() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
@@ -236,27 +240,18 @@ function connectWS() {
     let msg;
     try { msg = JSON.parse(evt.data); } catch { return; }
 
-    if (msg.type === "parent-assigned") {
-      assignedParent = msg.parentId;
-      roomBadge.textContent = `Parent: ${assignedParent}`;
+    if (msg.type === "room-assigned") {
+      assignedRoom = msg.roomId;
+      roomBadge.textContent = `Room: ${assignedRoom}`;
       roomBadge.style.display = "inline-block";
-      console.log("Parent assigned:", assignedParent);
+      console.log("assigned room:", assignedRoom);
     }
 
-    // If this client is told to create an offer to a child
-    if (msg.type === "child-joined") {
-      const childId = msg.childId;
-      // create a peer (parent role) and offer to child
-      createOfferToChild(childId).catch(e=>console.warn("createOfferToChild",e));
-    }
-
-    // parent sends SDP offer to us (we are child) -> handle same as before
     if (msg.type === "offer") {
       connText.textContent = "Connecting Stream";
-      // close previous parent pc if exists
-      if (pc) { try { pc.close(); } catch{} pc = null; }
+      // close old pc if exists
+      if (pc) { try { pc.close(); } catch {} pc = null; }
       pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-
       pc.ontrack = (ev) => {
         player.srcObject = ev.streams[0];
         player.play().catch(()=>{});
@@ -270,27 +265,16 @@ function connectWS() {
         const ans = await pc.createAnswer();
         await pc.setLocalDescription(ans);
         ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
-        window.__listenerPC = pc; // used by candidate handling
-      } catch (e) { console.warn("answer error", e); }
-    }
-
-    if (msg.type === "answer") {
-      // this could be an answer to one of our offers to children
-      const childPc = childrenPCs.get(msg.from);
-      if (childPc && msg.payload) {
-        try { await childPc.setRemoteDescription(msg.payload); } catch(e){ console.warn(e); }
+        window.__listenerPC = pc;
+      } catch (e) {
+        console.warn("answer error", e);
       }
     }
 
     if (msg.type === "candidate") {
-      // add candidate to the most appropriate RTCPeerConnection
-      // If we have a parent pc (pc) and its remoteSource matches msg.from, add there; otherwise to child pc
-      if (pc) {
-        try { await pc.addIceCandidate(msg.payload); } catch(e){ /* ignore */ }
-      }
-      const ch = childrenPCs.get(msg.from);
-      if (ch) {
-        try { await ch.addIceCandidate(msg.payload); } catch(e) {}
+      const targetPc = window.__listenerPC || pc;
+      if (targetPc) {
+        try { await targetPc.addIceCandidate(msg.payload); } catch (e) { console.warn(e); }
       }
     }
 
@@ -300,12 +284,10 @@ function connectWS() {
       if (msg.cover) coverImg.src = msg.cover;
     }
 
-    if (msg.type === "parent-lost") {
-      // server asked us to re-register (parent died) — reconnect logic
-      console.warn("parent lost, re-registering");
-      if (pc) try { pc.close(); } catch(){}
-      pc = null;
-      setTimeout(()=>{ try { ws.close(); } catch{}; connectWS(); }, 800);
+    if (msg.type === "peer-left" && msg.roomId) {
+      if (assignedRoom && assignedRoom === msg.roomId) {
+        roomBadge.textContent = `${roomBadge.textContent} (peer left)`;
+      }
     }
   };
 
@@ -319,88 +301,57 @@ function handleDisconnect() {
   pc = null;
   retryCount++;
   if (retryCount <= 5) {
-    setTimeout(connectWS, 3000);
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectWS, 3000);
   } else {
     retryOverlay.style.display = "flex";
   }
 }
-retryBtn.onclick = ()=>{ retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
+retryBtn.onclick = () => { retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
 
-// createOfferToChild: when server tells us a child joined under us.
-// We must forward our incoming audio to the child.
-async function createOfferToChild(childId) {
-  if (!childId) return;
-  // wait until we have a stream to forward (player.srcObject)
-  let tries = 0;
-  while ((!player.srcObject || player.srcObject.getAudioTracks().length === 0) && tries < 10) {
-    await new Promise(r => setTimeout(r, 300));
-    tries++;
-  }
-  const outStream = player.srcObject;
-  if (!outStream || outStream.getAudioTracks().length === 0) {
-    // As fallback, try to capture from microphone (best-effort)
-    try {
-      const mic = await navigator.mediaDevices.getUserMedia({ audio: true });
-      console.warn("No incoming stream yet — forwarding mic as fallback for child", childId);
-      createOfferWithStream(childId, mic);
-      return;
-    } catch (e) {
-      console.warn("Cannot forward stream to child (no source)", e);
-      return;
-    }
-  }
-  createOfferWithStream(childId, outStream);
-}
-
-async function createOfferWithStream(childId, stream) {
-  try {
-    if (childrenPCs.has(childId)) {
-      const ex = childrenPCs.get(childId);
-      try { if (ex.iceConnectionState !== "closed") return; } catch(e){ childrenPCs.delete(childId); }
-    }
-    const pcChild = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    childrenPCs.set(childId, pcChild);
-
-    // add audio tracks from stream to this pc
-    try {
-      for (const t of stream.getAudioTracks()) pcChild.addTrack(t, stream);
-    } catch (e) { console.warn("addTrack failed", e); }
-
-    pcChild.onicecandidate = (ev) => {
-      if (ev.candidate && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "candidate", target: childId, payload: ev.candidate }));
-      }
-    };
-    pcChild.onconnectionstatechange = () => {
-      if (["failed","disconnected","closed"].includes(pcChild.connectionState)) {
-        try { pcChild.close(); } catch(e) {}
-        childrenPCs.delete(childId);
-      }
-    };
-
-    const offer = await pcChild.createOffer();
-    await pcChild.setLocalDescription(offer);
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "offer", target: childId, payload: pcChild.localDescription }));
-  } catch (e) {
-    console.warn("createOfferWithStream error", e);
-  }
-}
-
-// play/pause UI controls (same as before)
+// player controls (play/pause button)
 playBtn.onclick = async () => {
-  if (!player.srcObject && player.paused) return;
-  if (player.paused) { try { await player.play(); } catch(e){} } else player.pause();
+  if (!player.srcObject && player.paused) {
+    // nothing to play yet
+    return;
+  }
+  if (player.paused) {
+    try { await player.play(); } catch (e) {}
+  } else player.pause();
 };
 player.addEventListener("pause", ()=>{ playIcon.style.display = "block"; pauseIcon.style.display = "none"; });
 player.addEventListener("play", ()=>{ playIcon.style.display = "none"; pauseIcon.style.display = "block"; });
 
-// share & chat (same)
+// share & chat buttons (keep same behavior)
 document.getElementById("shareBtn").onclick = () => { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
-document.getElementById("chatBtn").onclick = () => { window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank"); };
+document.getElementById("chatBtn").onclick = () => {
+  window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank");
+};
+
+// PWA install handler (keeps your code)
+let deferredPrompt;
+const installPopup = document.getElementById("installPopup");
+const installBtn = document.getElementById("installBtn");
+window.addEventListener("beforeinstallprompt", (e) => {
+  if (localStorage.getItem("biharFMInstalled")) return;
+  e.preventDefault();
+  deferredPrompt = e;
+  setTimeout(()=>installPopup.classList.add("show"), 2000);
+});
+installBtn.onclick = async () => {
+  installPopup.classList.remove("show");
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice.outcome === "accepted") localStorage.setItem("biharFMInstalled", "true");
+    deferredPrompt = null;
+  }
+};
+function hideInstallPopup() { installPopup.classList.remove("show"); localStorage.setItem("biharFMInstalled","true"); }
 
 // init
 connectWS();
-        </script>
+      </script>
 
 
   
