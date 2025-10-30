@@ -378,18 +378,15 @@ footer {
 
 <!-- hidden audio element used for capture -->
 <audio id="player" crossorigin="anonymous"></audio>
-<script>
+  <script>
 /*
-  BiharFM Broadcaster
-  - WebSocket + WebRTC
-  - Auto metadata sync (title, artist, cover)
-  - Mic mix, reconnect, bitrate control
-  - Minimal fixes: re-offer on restart / don't clear pcs on stop
+  BiharFM Broadcaster — full script for /cast/index.html
+  Drop-in replacement for your broadcaster <script>.
 */
-//const WS_URL = "wss://vivekmasona-denotts-96.deno.dev/ws";  
-const WS_URL = "wss://fmconnector.onrender.com";
 
-// DOM refs
+const WS_URL = "wss://fmconnector.onrender.com"; // change if needed
+
+// DOM refs (matching your HTML)
 const statusDot = document.getElementById("statusDot");
 const listenersEl = document.getElementById("listeners");
 const qualityDisplay = document.getElementById("quality");
@@ -409,7 +406,7 @@ const player = document.getElementById("player");
 
 // state
 let ws = null;
-let pcs = new Map();
+let pcs = new Map(); // listenerId -> RTCPeerConnection
 let playlist = [];
 let tracksMeta = [];
 let currentIndex = -1;
@@ -432,7 +429,6 @@ function connectWS() {
     ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
 
     // After WS reconnect, try re-offer to all known listener ids (if any)
-    // Using Array.from to avoid mutation during iteration
     try {
       for (const id of Array.from(pcs.keys())) {
         // makePeer will delete closed entries and recreate if needed
@@ -479,7 +475,6 @@ async function handleWSMessage(msg) {
     updateListenersUI();
     if (msg.id && pcs.has(msg.id)) {
       try { pcs.get(msg.id).close(); } catch (e) {}
-      // keep the id in the map if you plan to re-offer later, but remove if closed
       pcs.delete(msg.id);
     }
   } else if (msg.type === "answer") {
@@ -488,6 +483,9 @@ async function handleWSMessage(msg) {
   } else if (msg.type === "candidate") {
     const pc = pcs.get(msg.from);
     if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
+  } else if (msg.type === "rooms-info") {
+    // optional: display rooms info in console
+    console.log("rooms:", msg.rooms);
   }
 }
 
@@ -623,7 +621,7 @@ async function playSong(i) {
   currentTrack = stream.getAudioTracks()[0];
   await updateAllPeersTrack();
 
-  // 🔴 Send metadata to listeners
+  // 🔴 Send metadata to listeners (via server relay)
   const meta = tracksMeta[i] || {};
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
@@ -683,6 +681,7 @@ micBtn.onclick = async () => {
 };
 
 // --- WebRTC + bitrate helpers ---
+// makePeer creates RTCPeerConnection and sends offer to listener id
 async function makePeer(id) {
   if (!id) return;
   if (pcs.has(id)) {
@@ -703,7 +702,6 @@ async function makePeer(id) {
   pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
   pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) {
     // keep the entry so we can recreate on restart, but remove if server not interested
-    // do not aggressively clear here
     console.warn("pc state", pc.connectionState);
   } };
 
@@ -775,8 +773,6 @@ function stopBroadcast() {
     try { pc.close(); } catch (e) {}
     // keep the key in the map — makePeer will detect closed and recreate
   }
-  // DON'T clear pcs here (pcs.clear()), and DON'T set peerCount to 0.
-  // This preserves known listener ids for re-offer on restart.
   updateListenersUI();
 }
 
@@ -785,6 +781,4 @@ window.addEventListener("beforeunload", () => {
   try { ws?.close(); } catch (e) {}
   pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
 });
-    </script>
-                
-
+    </script>                  
