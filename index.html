@@ -156,11 +156,17 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 
 <audio id="player" autoplay></audio>  
 
+       
  <script>
-/* -----------------------------------
-   Multi-Relay BiharFM Listener System
-   ----------------------------------- */
-const MAIN_WS = "wss://fmconnector.onrender.com";  // main broadcaster server
+/*
+  listener.js — dual-mode (listener or auto mini-host)
+  - Connects to signaling server, gets assigned to a pair
+  - If role === "mini-host" -> captureStream() from player and create outgoing PCs to members
+  - If role === "listener" -> accept offers from mini-host and play stream
+  - Responds to master sync messages to keep mini-host player in sync
+*/
+
+const WS_URL = "wss://fmconnector.onrender.com";
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
 const playBtn = document.getElementById("playPauseBtn");
@@ -173,263 +179,239 @@ const timeCounter = document.getElementById("timeCounter");
 const retryOverlay = document.getElementById("retryOverlay");
 const retryBtn = document.getElementById("retryBtn");
 
-let pc = null;
-let relaySocket = null;
-let reconnectTimeout = null;
-let miniHostId = null;
-let playing = false;
-let retryCount = 0;
+let socket = null;
+let pc = null; // incoming pc when listening to a mini-host
+let outgoingMap = new Map(); // memberId -> RTCPeerConnection (when this client is mini-host)
+let role = "listener";
+let myPair = null; // { pairId, members, miniHostId }
+let lastMasterSync = null;
 let reconnecting = false;
+let retryCount = 0;
+let reconnectTimeout = null;
 
-/* 🔹 Utility - Generate random mini host id */
-function randomHostId() {
-  const rand = Math.floor(1000 + Math.random() * 9000);
-  return "vivek" + rand;
-}
-
-/* 🔹 Time display updater */
-setInterval(() => {
-  if (player && !isNaN(player.currentTime)) {
-    const t = Math.floor(player.currentTime);
-    const m = Math.floor(t / 60).toString().padStart(2, "0");
-    const s = (t % 60).toString().padStart(2, "0");
-    timeCounter.textContent = `${m}:${s}`;
-  }
-}, 1000);
-
-/* -----------------------------------
-   1️⃣ Connect to main relay (mini-host logic)
-   ----------------------------------- */
-async function connectRelay() {
-  miniHostId = randomHostId(); // unique for every small relay batch
-  console.log("Mini Host ID:", miniHostId);
-
-  if (relaySocket && relaySocket.readyState === WebSocket.OPEN) return;
-
-  relaySocket = new WebSocket(MAIN_WS);
+// helper: connect WS
+function connectWS() {
+  reconnecting = false;
+  retryOverlay.style.display = "none";
+  socket = new WebSocket(WS_URL);
   connText.textContent = "Connecting";
 
-  relaySocket.onopen = () => {
-    retryOverlay.style.display = "none";
+  socket.onopen = () => {
+    socket.send(JSON.stringify({ type: "register", role: "listener" }));
+    connText.textContent = "Waiting for pair";
     retryCount = 0;
-    connText.textContent = "Connected";
-    relaySocket.send(
-      JSON.stringify({
-        type: "register",
-        role: "listener",
-        relayGroup: miniHostId, // assign group id
-      })
-    );
   };
 
-  relaySocket.onmessage = async (e) => {
-    const msg = JSON.parse(e.data);
+  socket.onmessage = async (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    await handleMsg(msg);
+  };
 
-    /* 🟢 Received WebRTC offer (from broadcaster or mini relay) */
-    if (msg.type === "offer") {
-      connText.textContent = "Connecting Stream";
+  socket.onclose = () => handleDisconnect();
+  socket.onerror = () => handleDisconnect();
+}
+connectWS();
 
-      pc = new RTCPeerConnection({
-        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-      });
+// handle server messages
+async function handleMsg(msg) {
+  if (!msg?.type) return;
 
-      pc.ontrack = (ev) => {
-        player.srcObject = ev.streams[0];
-        player.play().catch(() => {});
-        connText.textContent = "Live";
-      };
+  // server assigned a pair
+  if (msg.type === "pair-created") {
+    myPair = { pairId: msg.pairId, members: msg.members.slice(), miniHostId: msg.miniHostId };
+    // server may include role
+    role = msg.role === "mini-host" ? "mini-host" : (msg.miniHostId === undefined ? "listener" : (msg.miniHostId === getMyId() ? "mini-host" : "listener"));
+    console.log("Assigned pair:", myPair, "role:", role);
 
-      pc.onicecandidate = (ev) => {
-        if (ev.candidate)
-          relaySocket.send(
-            JSON.stringify({
-              type: "candidate",
-              target: msg.from,
-              payload: ev.candidate,
-            })
-          );
-      };
-
-      await pc.setRemoteDescription(msg.payload);
-      const ans = await pc.createAnswer();
-      await pc.setLocalDescription(ans);
-      relaySocket.send(
-        JSON.stringify({
-          type: "answer",
-          target: msg.from,
-          payload: ans,
-        })
-      );
+    if (role === "mini-host") {
+      // become mini-host: init outgoing connections to other members
+      await initMiniHost(myPair);
+    } else {
+      // listener: wait for offer from mini-host
+      if (pc) { try { pc.close(); } catch {} pc = null; }
+      connText.textContent = "Paired — waiting for mini-host stream";
     }
+    return;
+  }
 
-    /* 🟡 ICE candidate */
-    if (msg.type === "candidate" && pc) {
-      await pc.addIceCandidate(msg.payload).catch(() => {});
+  if (msg.type === "metadata") {
+    if (msg.title) songTitle.textContent = msg.title;
+    if (msg.artist) artistName.textContent = msg.artist;
+    if (msg.cover) coverImg.src = msg.cover;
+    return;
+  }
+
+  if (msg.type === "sync") {
+    lastMasterSync = msg.payload;
+    // only mini-hosts need to apply sync to local player (so they stream same position to listeners)
+    if (role === "mini-host") {
+      applySyncToPlayer(lastMasterSync);
     }
+    return;
+  }
 
-    /* 🎵 Metadata sync */
-    if (msg.type === "metadata") {
-      if (msg.title) songTitle.textContent = msg.title;
-      if (msg.artist) artistName.textContent = msg.artist;
-      if (msg.cover) coverImg.src = msg.cover;
-    }
+  // signaling flow: offer -> listener, answer -> mini-host, candidate -> target
+  if (msg.type === "offer") {
+    // incoming offer targeted to this client (from mini-host)
+    connText.textContent = "Connecting Stream";
+    if (pc) { try { pc.close(); } catch {} pc = null; }
+    pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
-    /* ⏱ Song sync timestamp from main host */
-    if (msg.type === "sync-time" && msg.payload) {
-      const serverTime = msg.payload.currentTime;
-      if (Math.abs(player.currentTime - serverTime) > 1.5) {
-        player.currentTime = serverTime;
+    pc.ontrack = (ev) => {
+      player.srcObject = ev.streams[0];
+      player.play().catch(()=>{});
+      connText.textContent = "Live";
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate && socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "candidate", target: msg.from, payload: e.candidate }));
       }
-    }
-  };
+    };
 
-  relaySocket.onclose = handleDisconnect;
-  relaySocket.onerror = handleDisconnect;
+    await pc.setRemoteDescription(msg.payload);
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    socket.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
+    return;
+  }
+
+  if (msg.type === "answer") {
+    // This client as mini-host receives answers from members to our outgoing offers
+    const from = msg.from;
+    const outPc = outgoingMap.get(from);
+    if (outPc && msg.payload) {
+      await outPc.setRemoteDescription(msg.payload).catch(()=>{});
+    }
+    return;
+  }
+
+  if (msg.type === "candidate") {
+    const from = msg.from;
+    // try add candidate to outgoing pc first
+    if (outgoingMap.has(from)) {
+      try { await outgoingMap.get(from).addIceCandidate(msg.payload); } catch {}
+    } else if (pc) {
+      try { await pc.addIceCandidate(msg.payload); } catch {}
+    }
+    return;
+  }
+
+  if (msg.type === "peer-left") {
+    // member left the pair
+    if (role === "mini-host" && msg.id) {
+      if (outgoingMap.has(msg.id)) {
+        try { outgoingMap.get(msg.id).close(); } catch {}
+        outgoingMap.delete(msg.id);
+      }
+    } else if (role === "listener" && pc) {
+      try { pc.close(); } catch {}
+      pc = null;
+    }
+    return;
+  }
 }
 
-/* -----------------------------------
-   2️⃣ Auto reconnect on failure
-   ----------------------------------- */
+// small helper: we don't know our server id; server includes target/from in messages. We identify self by handling offers/answers directed to us
+function getMyId() { return undefined; } // not used — server-driven pairing avoids needing our id here
+
+// apply master sync to local player (mini-host)
+function applySyncToPlayer(sync) {
+  if (!sync) return;
+  const url = sync.url;
+  if (url && player.src !== url) {
+    player.src = url;
+  }
+  // correct drift if >0.5s
+  try {
+    const now = player.currentTime || 0;
+    if (Math.abs(now - sync.currentTime) > 0.5) player.currentTime = sync.currentTime;
+  } catch {}
+  if (sync.playing) player.play().catch(()=>{}); else player.pause();
+}
+
+// become mini-host: capture player and create outgoing offers to other members
+async function initMiniHost(pair) {
+  connText.textContent = "You are mini-host — preparing stream";
+  // ensure player is synced to last master sync if available
+  if (lastMasterSync) applySyncToPlayer(lastMasterSync);
+
+  // capture local player as media source
+  let stream = null;
+  try {
+    if (player.captureStream) stream = player.captureStream();
+    else stream = null;
+  } catch (e) { stream = null; }
+
+  // if player.captureStream not available, mini-host cannot forward via WebRTC in this browser
+  if (!stream) {
+    connText.textContent = "captureStream not available — mini-host not supported on this browser";
+    return;
+  }
+
+  // create outgoing pc for each member except ourselves
+  const members = pair.members || [];
+  for (const memberId of members) {
+    // skip memberId === undefined
+    if (!memberId) continue;
+    // we may be included in members list — still create outgoing for others; safe to create offers for all (server will route)
+    if (outgoingMap.has(memberId)) continue;
+
+    const outPc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    outgoingMap.set(memberId, outPc);
+
+    // add audio tracks (song + mic mixing if needed)
+    try { stream.getTracks().forEach(t => outPc.addTrack(t, stream)); } catch (e) {}
+
+    outPc.onicecandidate = (e) => {
+      if (e.candidate && socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "candidate", target: memberId, payload: e.candidate, pairId: pair.pairId }));
+      }
+    };
+
+    // create offer
+    try {
+      const offer = await outPc.createOffer();
+      await outPc.setLocalDescription(offer);
+      // send offer to target via server (server will forward to target listener)
+      socket.send(JSON.stringify({ type: "offer", target: memberId, payload: outPc.localDescription, pairId: pair.pairId }));
+    } catch (e) {
+      console.warn("offer error", e);
+    }
+  }
+
+  connText.textContent = "Mini-host streaming to members";
+}
+
+// reconnect handling
 function handleDisconnect() {
   if (reconnecting) return;
   reconnecting = true;
   connText.textContent = "Reconnecting...";
-  if (pc) {
-    try {
-      pc.close();
-    } catch (e) {}
-    pc = null;
-  }
+  // cleanup
+  if (pc) { try { pc.close(); } catch {} pc = null; }
+  for (const p of outgoingMap.values()) try { p.close(); } catch {}
+  outgoingMap.clear();
 
   retryCount++;
-  if (retryCount <= 5) {
-    reconnectTimeout = setTimeout(() => {
-      reconnecting = false;
-      connectRelay();
-    }, 3000);
-  } else {
-    retryOverlay.style.display = "flex";
-  }
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
+  if (retryCount <= 5) reconnectTimeout = setTimeout(connectWS, 3000);
+  else retryOverlay.style.display = "flex";
 }
 
-retryBtn.onclick = () => {
-  retryCount = 0;
-  reconnecting = false;
-  connectRelay();
-};
-
-/* -----------------------------------
-   3️⃣ Player Control UI (unchanged)
-   ----------------------------------- */
+// UI controls (play/pause local only for mini-host preview)
 playBtn.onclick = async () => {
-  if (playing) {
-    player.pause();
-  } else {
-    try {
-      await player.play();
-    } catch (e) {}
-  }
+  if (player.paused) await player.play().catch(()=>{});
+  else player.pause();
 };
+player.addEventListener("pause", () => { playIcon.style.display = "block"; pauseIcon.style.display = "none"; });
+player.addEventListener("play", () => { playIcon.style.display = "none"; pauseIcon.style.display = "block"; });
 
-player.addEventListener("pause", () => {
-  playing = false;
-  playBtn.classList.remove("playing");
-  playIcon.style.display = "block";
-  pauseIcon.style.display = "none";
-});
+// retry overlay
+retryBtn.onclick = () => { retryCount = 0; connectWS(); };
 
-player.addEventListener("play", () => {
-  playing = true;
-  playBtn.classList.add("playing");
-  playIcon.style.display = "none";
-  pauseIcon.style.display = "block";
-});
-
-/* -----------------------------------
-   4️⃣ Social Share + Chat (unchanged)
-   ----------------------------------- */
-document.getElementById("shareBtn").onclick = () => {
-  if (navigator.share)
-    navigator.share({
-      title: "BiharFM Live",
-      text: "🎧 Listen now on BiharFM",
-      url: location.href,
-    });
-};
-document.getElementById("chatBtn").onclick = () => {
-  window.open(
-    "https://wa.me/?text=🎧 Listen BiharFM Live ➜ " +
-      encodeURIComponent(location.href),
-    "_blank"
-  );
-};
-
-/* -----------------------------------
-   5️⃣ Long press dashboard (unchanged)
-   ----------------------------------- */
-let lpTimer = null;
-const lpPopup = document.getElementById("lpPopup");
-const lpInput = document.getElementById("lpInput");
-const lpCancel = document.getElementById("lpCancel");
-const lpSubmit = document.getElementById("lpSubmit");
-
-function openPopup() {
-  lpPopup.classList.add("show");
-  lpInput.focus();
-}
-function closePopup() {
-  lpPopup.classList.remove("show");
-}
-document.body.addEventListener("touchstart", () => {
-  lpTimer = setTimeout(openPopup, 1500);
-});
-document.body.addEventListener("touchend", () => {
-  clearTimeout(lpTimer);
-});
-lpCancel.onclick = closePopup;
-lpSubmit.onclick = () => {
-  if (lpInput.value === "vk007") {
-    window.location.href = "/cast";
-  } else {
-    lpPopup.classList.add("wrong");
-    setTimeout(() => lpPopup.classList.remove("wrong"), 400);
-  }
-};
-
-/* -----------------------------------
-   6️⃣ PWA install prompt handler (unchanged)
-   ----------------------------------- */
-let deferredPrompt;
-const installPopup = document.getElementById("installPopup");
-const installBtn = document.getElementById("installBtn");
-
-window.addEventListener("beforeinstallprompt", (e) => {
-  if (localStorage.getItem("biharFMInstalled")) return;
-  e.preventDefault();
-  deferredPrompt = e;
-  setTimeout(() => installPopup.classList.add("show"), 2000);
-});
-installBtn.onclick = async () => {
-  installPopup.classList.remove("show");
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === "accepted") {
-      localStorage.setItem("biharFMInstalled", "true");
-    }
-    deferredPrompt = null;
-  }
-};
-function hideInstallPopup() {
-  installPopup.classList.remove("show");
-  localStorage.setItem("biharFMInstalled", "true");
-}
-
-/* -----------------------------------
-   7️⃣ INIT
-   ----------------------------------- */
-connectRelay();
- </script> 
+// init done: WS already connected at top of script
+</script>
           
 </body>
 </html>
