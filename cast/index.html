@@ -9,6 +9,85 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 
+
+
+<!-- Overlay button container -->
+<div id="groupOverlay"></div>
+
+<!-- Popup -->
+<div id="groupPopup" class="popup">
+  <div class="popup-content">
+    <h3 id="popupTitle">Group ID</h3>
+    <p id="popupInfo">Listeners: 0</p>
+    <button id="popupClose">OK</button>
+  </div>
+</div>
+
+<style>
+#groupOverlay {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+}
+.group-btn {
+  background: linear-gradient(90deg, #ff3c3c, #ff8888);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(255,0,0,0.3);
+  font-weight: 600;
+  transition: transform .2s;
+}
+.group-btn:hover { transform: scale(1.08); }
+
+/* Popup */
+.popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+.popup-content {
+  background: #151520;
+  padding: 20px 25px;
+  border-radius: 12px;
+  text-align: center;
+  color: white;
+  width: 260px;
+  box-shadow: 0 0 15px rgba(0,0,0,0.6);
+}
+.popup-content h3 {
+  margin-bottom: 8px;
+}
+.popup-content button {
+  background: linear-gradient(90deg, #ff3c3c, #ff8888);
+  border: none;
+  padding: 8px 18px;
+  color: #fff;
+  font-weight: bold;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+</style>
+
+
+
+
+
+
+
+
+
 <style>:root {
   --bg: #0a0a0a;
   --accent: #ff2b2b;
@@ -379,14 +458,13 @@ footer {
 <!-- hidden audio element used for capture -->
 <audio id="player" crossorigin="anonymous"></audio>
         
-      <script>
-// broadcaster.js — full ready-to-use
-
+                      <script>
+// broadcaster.js — master broadcaster (sends metadata + sync)
 const WS_URL = "wss://fmconnector.onrender.com";
 
-// UI refs (must exist in HTML)
 const statusDot = document.getElementById("statusDot");
 const listenersEl = document.getElementById("listeners");
+const qualityDisplay = document.getElementById("quality");
 const qualitySel = document.getElementById("qualitySel");
 const fileInput = document.getElementById("fileInput");
 const playlistEl = document.getElementById("playlist");
@@ -400,119 +478,26 @@ const goLiveBtn = document.getElementById("goLive");
 const micBtn = document.getElementById("micBtn");
 const reconnectBtn = document.getElementById("reconnectBtn");
 const player = document.getElementById("player");
+  const groupOverlay = document.getElementById("groupOverlay");
+const popup = document.getElementById("groupPopup");
+const popupTitle = document.getElementById("popupTitle");
+const popupInfo = document.getElementById("popupInfo");
+const popupClose = document.getElementById("popupClose");
+const groups = {}; 
 
 let ws = null;
-let pcs = new Map();               // id -> RTCPeerConnection
+let pcs = new Map();
 let playlist = [];
 let tracksMeta = [];
 let currentIndex = -1;
-let localStream = null;            // mixed music+mic stream
+let localStream = null;
 let currentTrack = null;
 let micStream = null;
 let micEnabled = false;
 let peerCount = 0;
-let currentBitrate = parseInt(qualitySel?.value || "64000", 10);
-let syncInterval = null;
-let connectedHosts = [];           // list of connected listener ids (for overlay)
+let currentBitrate = parseInt(qualitySel.value) || 64000;
+let syncInterval = null; // interval ID for sending master sync
 
-///// Helpers /////
-function setStatusLoading(flag) {
-  statusDot?.classList.toggle("loading", !!flag);
-}
-function setStatusConnected(connected) {
-  setStatusLoading(false);
-  if (!statusDot) return;
-  if (connected) {
-    statusDot.style.background = "var(--green)";
-    statusDot.style.boxShadow = "0 0 10px var(--green)";
-  } else {
-    statusDot.style.background = "var(--red)";
-    statusDot.style.boxShadow = "0 0 10px var(--red)";
-  }
-}
-function updateListenersUI() {
-  if (listenersEl) listenersEl.textContent = `Listeners: ${peerCount}`;
-}
-
-///// Overlay (Hosts) + LIVE badge /////
-const overlayBtn = document.createElement("button");
-overlayBtn.id = "overlayBtn";
-overlayBtn.textContent = "Hosts (0)";
-Object.assign(overlayBtn.style, {
-  position: "fixed",
-  bottom: "20px",
-  right: "20px",
-  background: "linear-gradient(90deg,#ff3c3c,#ff8888)",
-  color: "#000",
-  fontWeight: "700",
-  padding: "10px 14px",
-  borderRadius: "12px",
-  border: "none",
-  zIndex: 9999,
-  boxShadow: "0 6px 20px rgba(0,0,0,0.25)"
-});
-document.body.appendChild(overlayBtn);
-
-const overlayPopup = document.createElement("div");
-overlayPopup.id = "overlayPopup";
-Object.assign(overlayPopup.style, {
-  position: "fixed",
-  bottom: "80px",
-  right: "20px",
-  width: "240px",
-  maxHeight: "300px",
-  overflowY: "auto",
-  background: "rgba(10,10,12,0.95)",
-  color: "#fff",
-  padding: "12px",
-  borderRadius: "10px",
-  display: "none",
-  zIndex: 10000,
-  boxShadow: "0 10px 30px rgba(0,0,0,0.5)"
-});
-document.body.appendChild(overlayPopup);
-
-overlayBtn.onclick = () => {
-  overlayPopup.style.display = overlayPopup.style.display === "none" ? "block" : "none";
-  renderOverlay();
-};
-function renderOverlay() {
-  overlayPopup.innerHTML = `<div style="font-weight:700;margin-bottom:8px">Connected Hosts (${connectedHosts.length})</div>`;
-  if (connectedHosts.length === 0) {
-    overlayPopup.innerHTML += `<div style="color:#bbb">No hosts connected</div>`;
-  } else {
-    connectedHosts.forEach(id => {
-      const el = document.createElement("div");
-      el.textContent = id;
-      el.style.padding = "6px 4px";
-      el.style.borderBottom = "1px solid rgba(255,255,255,0.03)";
-      overlayPopup.appendChild(el);
-    });
-  }
-  overlayBtn.textContent = `Hosts (${connectedHosts.length})`;
-}
-
-// LIVE badge (blinking)
-const liveBadge = document.createElement("div");
-liveBadge.textContent = "LIVE";
-Object.assign(liveBadge.style, {
-  position: "fixed",
-  top: "12px",
-  right: "20px",
-  background: "#ff3b3b",
-  color: "#fff",
-  padding: "6px 10px",
-  borderRadius: "8px",
-  fontWeight: "700",
-  zIndex: 9999,
-  display: "none",
-  boxShadow: "0 6px 20px rgba(255,0,0,0.25)",
-  animation: "biharfm-blink 1.4s infinite"
-});
-document.head.insertAdjacentHTML("beforeend", `<style>@keyframes biharfm-blink{0%{opacity:1}50%{opacity:.25}100%{opacity:1}}</style>`);
-document.body.appendChild(liveBadge);
-
-///// WebSocket connect /////
 function connectWS() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   ws = new WebSocket(WS_URL);
@@ -521,22 +506,13 @@ function connectWS() {
   ws.onopen = () => {
     setStatusConnected(true);
     ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
-    // re-offer to any known peers if needed
+    // if we reconnect, ensure peers are re-offered
     for (const id of Array.from(pcs.keys())) makePeer(id).catch(()=>{});
-  };
-
-  ws.onmessage = async (evt) => {
-    try {
-      const msg = JSON.parse(evt.data);
-      await handleWSMessage(msg);
-    } catch (e) {
-      console.warn("Invalid WS message", e);
-    }
   };
 
   ws.onclose = () => {
     setStatusConnected(false);
-    console.warn("WS closed, reconnecting in 2s...");
+    console.warn("WS closed, reconnecting...");
     setTimeout(connectWS, 2000);
   };
 
@@ -544,75 +520,219 @@ function connectWS() {
     console.warn("WS error", e);
     setStatusConnected(false);
   };
+
+  ws.onmessage = async (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      handleWSMessage(msg);
+    } catch (e) { console.warn("Invalid WS message", e); }
+  };
 }
 connectWS();
 
 async function handleWSMessage(msg) {
-  if (!msg || !msg.type) return;
-
-  // Basic listener lifecycle (older server relied on this)
+  if(!msg.type) return;
   if (msg.type === "listener-joined") {
     peerCount++;
     updateListenersUI();
-    if (msg.id) {
-      // create a new peer to that id
-      await makePeer(msg.id);
-      if (!connectedHosts.includes(msg.id)) {
-        connectedHosts.push(msg.id);
-        renderOverlay();
-      }
-    }
-    return;
-  }
-
-  if (msg.type === "peer-left") {
+    if (msg.id) await makePeer(msg.id);
+  } else if (msg.type === "peer-left") {
     peerCount = Math.max(0, peerCount - 1);
     updateListenersUI();
-    if (msg.id) {
-      // cleanup
-      if (pcs.has(msg.id)) {
-        try { pcs.get(msg.id).close(); } catch {}
-        pcs.delete(msg.id);
-      }
-      connectedHosts = connectedHosts.filter(x => x !== msg.id);
-      renderOverlay();
+    if (msg.id && pcs.has(msg.id)) {
+      pcs.get(msg.id).close();
+      pcs.delete(msg.id);
     }
-    return;
-  }
-
-  // answer: listener responded to our offer
-  if (msg.type === "answer" && msg.from) {
+  } else if (msg.type === "answer") {
     const pc = pcs.get(msg.from);
-    if (pc && msg.payload) {
-      await pc.setRemoteDescription(msg.payload).catch(()=>{});
-    }
-    return;
-  }
-
-  // candidate from listener
-  if (msg.type === "candidate" && msg.from) {
+    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(()=>{});
+  } else if (msg.type === "candidate") {
     const pc = pcs.get(msg.from);
-    if (pc && msg.payload) {
-      try { await pc.addIceCandidate(msg.payload); } catch (e) {/* ignore */ }
-    }
-    return;
-  }
-
-  // server forwards metadata/sync — not used here except logging
-  if (msg.type === "metadata") {
-    // could be used to show what's playing on server side
-    return;
-  }
-
-  if (msg.type === "pair-created") {
-    // server might inform broadcaster about pairs (optional)
-    // msg => { pairId, members, miniHostId }
-    // currently broadcaster doesn't need to react specially
-    return;
+    if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
   }
 }
 
-///// WebRTC: makePeer (broadcaster -> listener) /////
+
+// structure: { groupId: { listeners: count } }
+
+popupClose.onclick = ()=> popup.style.display = "none";
+
+function updateOverlayUI() {
+  groupOverlay.innerHTML = "";
+  for (const id in groups) {
+    const btn = document.createElement("button");
+    btn.className = "group-btn";
+    btn.textContent = `${id} (${groups[id].listeners})`;
+    btn.onclick = ()=> showPopup(id);
+    groupOverlay.appendChild(btn);
+  }
+}
+
+function showPopup(id) {
+  popupTitle.textContent = `Group: ${id}`;
+  popupInfo.textContent = `Listeners: ${groups[id]?.listeners || 0}`;
+  popup.style.display = "flex";
+}
+
+// Simulate group join/update from server
+// you’ll later map this with actual WS message (mini-host connected)
+function registerGroup(id, listenerCount = 0) {
+  groups[id] = { listeners: listenerCount };
+  updateOverlayUI();
+}
+
+function updateGroupListeners(id, newCount) {
+  if (groups[id]) {
+    groups[id].listeners = newCount;
+    updateOverlayUI();
+  }
+}
+                        
+
+
+
+                        
+// UI helpers same as before
+function updateListenersUI(){ listenersEl.textContent = `Listeners: ${peerCount}`; }
+function setStatusLoading(flag){ if(flag) statusDot.classList.add("loading"); else statusDot.classList.remove("loading"); }
+function setStatusConnected(connected){ setStatusLoading(false); if(connected){ statusDot.style.background="var(--green)"; statusDot.style.boxShadow="0 0 10px var(--green)"; } else { statusDot.style.background="var(--red)"; statusDot.style.boxShadow="0 0 10px var(--red)"; } }
+reconnectBtn.onclick = ()=>{ setStatusLoading(true); setStatusConnected(false); if(ws) try{ ws.close(); }catch{} setTimeout(connectWS,900); };
+
+// file uploads / jsmediatags same as your original; add optional url support
+fileInput.addEventListener("change",(e)=>{
+  const files = Array.from(e.target.files||[]);
+  playlist = files;
+  tracksMeta = files.map(f=>({
+    title: f.name.replace(/\.[^/.]+$/,""),
+    artist: "Unknown Artist",
+    cover: null,
+    // OPTIONAL: if you host file on server, put a public URL here for sharing with mini-hosts
+    url: f.url || null,
+    file: f
+  }));
+  playlistEl.innerHTML = "";
+  files.forEach((file,idx)=>{
+    const item=document.createElement("div");
+    item.className="song"; item.dataset.index=idx;
+    item.innerHTML = `<div class="cover" id="cover-${idx}" style="background-image:url('https://cdn-icons-png.flaticon.com/512/727/727245.png')"></div>
+      <div class="meta"><div class="title" id="title-${idx}">${tracksMeta[idx].title}</div>
+      <div class="artist" id="artist-${idx}">${tracksMeta[idx].artist}</div></div>`;
+    item.addEventListener("click", ()=> playSong(idx));
+    playlistEl.appendChild(item);
+
+    jsmediatags.read(file, { onSuccess: (tag)=>{
+      const t = tag.tags || {};
+      tracksMeta[idx].title = t.title || tracksMeta[idx].title;
+      tracksMeta[idx].artist = t.artist || tracksMeta[idx].artist;
+      if(t.picture && t.picture.data){
+        const data = t.picture.data; const format = t.picture.format || "image/jpeg";
+        let base64=""; for(let i=0;i<data.length;i++) base64+=String.fromCharCode(data[i]);
+        tracksMeta[idx].cover = `data:${format};base64,${btoa(base64)}`;
+        document.getElementById(`cover-${idx}`).style.backgroundImage = `url(${tracksMeta[idx].cover})`;
+      }
+      document.getElementById(`title-${idx}`).textContent = tracksMeta[idx].title;
+      document.getElementById(`artist-${idx}`).textContent = tracksMeta[idx].artist;
+    }});
+  });
+});
+
+// play controls
+playPauseBtn.addEventListener("click", async ()=>{
+  if(!player.src) return;
+  if(player.paused){ await player.play(); playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>'; }
+  else { player.pause(); playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; }
+});
+prevBtn.onclick = ()=>{ if(currentIndex>0) playSong(currentIndex-1); };
+nextBtn.onclick = ()=>{ if(currentIndex+1<playlist.length) playSong(currentIndex+1); };
+seek.oninput = ()=>{ if(player.duration) player.currentTime = (seek.value/100)*player.duration; };
+player.ontimeupdate = ()=>{ if(player.duration) seek.value = (player.currentTime/player.duration)*100; };
+player.onended = ()=>{ if(currentIndex+1<playlist.length) playSong(currentIndex+1); else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; };
+volume.oninput = ()=> player.volume = volume.value;
+speed.oninput = ()=> player.playbackRate = speed.value;
+
+// quality selector
+qualitySel.onchange = (e) => { currentBitrate = parseInt(e.target.value||64000); qualityDisplay.textContent = `Quality: ${Math.round(currentBitrate/1000)} kbps`; setAllSendersBitrate(currentBitrate); };
+
+// playSong + metadata + start sync interval
+async function playSong(i){
+  if(!playlist[i]) return;
+  currentIndex = i;
+  const file = playlist[i];
+  // prefer a hosted url if available; otherwise use objectURL (local)
+  const url = tracksMeta[i].url || URL.createObjectURL(file);
+  player.src = url;
+  await player.play();
+  playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+  document.querySelectorAll(".song").forEach(el=>el.classList.remove("active"));
+  playlistEl.querySelector(`.song[data-index="${i}"]`)?.classList.add("active");
+  updateLiveBadge(i);
+
+  const stream = player.captureStream();
+  localStream = stream;
+  currentTrack = stream.getAudioTracks()[0];
+  await updateAllPeersTrack();
+
+  // send metadata to all via server
+  const meta = tracksMeta[i] || {};
+  if(ws && ws.readyState === WebSocket.OPEN){
+    ws.send(JSON.stringify({ type: "metadata", payload: { title: meta.title || "Unknown", artist: meta.artist || "Unknown Artist", cover: meta.cover || "", url: meta.url || null, index: i } }));
+  }
+
+  // start sync interval: send master sync every 1s (can adjust)
+  if(syncInterval) clearInterval(syncInterval);
+  syncInterval = setInterval(()=>{
+    if(ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "sync", payload: { index: currentIndex, title: meta.title, artist: meta.artist, cover: meta.cover || "", url: meta.url || null, currentTime: player.currentTime, playing: !player.paused } }));
+    }
+  }, 1000);
+}
+
+// live badge
+function updateLiveBadge(i){
+  document.querySelectorAll(".song .live-badge").forEach(n=>n.remove());
+  const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
+  if(!el) return;
+  const badge = document.createElement("div");
+  badge.className = "live-badge";
+  badge.textContent = "LIVE";
+  el.appendChild(badge);
+}
+
+// mic mixing (unchanged)
+micBtn.onclick = async () => {
+  if (!micEnabled) {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const ctx = new AudioContext();
+      const dest = ctx.createMediaStreamDestination();
+      const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : ctx.createMediaElementSource(player);
+      const micSrc = ctx.createMediaStreamSource(micStream);
+      const gMusic = ctx.createGain(), gMic = ctx.createGain();
+      gMusic.gain.value = 0.02; gMic.gain.value = 0.98;
+      musicSrc.connect(gMusic).connect(dest);
+      micSrc.connect(gMic).connect(dest);
+      localStream = dest.stream;
+      currentTrack = localStream.getAudioTracks()[0];
+      await updateAllPeersTrack();
+      micEnabled = true;
+      micBtn.style.background = "var(--green)";
+    } catch (e) { alert("Mic access denied"); }
+  } else {
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micEnabled = false;
+    micStream = null;
+    micBtn.style.background = "";
+    const ctx = new AudioContext();
+    const dest = ctx.createMediaStreamDestination();
+    const src = ctx.createMediaElementSource(player);
+    src.connect(dest);
+    localStream = dest.stream;
+    currentTrack = localStream.getAudioTracks()[0];
+    await updateAllPeersTrack();
+  }
+};
+
+// WebRTC helpers (same as original)
 async function makePeer(id) {
   if (!id) return;
   if (pcs.has(id)) {
@@ -623,36 +743,15 @@ async function makePeer(id) {
   const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   pcs.set(id, pc);
 
-  try {
-    if (currentTrack && localStream) {
-      pc.addTrack(currentTrack, localStream);
-    }
-  } catch (e) {}
-
-  pc.onicecandidate = e => {
-    if (e.candidate && ws && ws.readyState === WebSocket.OPEN) {
-      // send candidate to server to forward to target id
-      ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate }));
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (["disconnected","failed","closed"].includes(pc.connectionState)) {
-      pcs.delete(id);
-      connectedHosts = connectedHosts.filter(x => x !== id);
-      renderOverlay();
-    }
-  };
+  try { if (currentTrack && localStream) pc.addTrack(currentTrack, localStream); } catch (e) {}
+  pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
+  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) pcs.delete(id); };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "offer", target: id, payload: pc.localDescription }));
-  }
-  return pc;
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "offer", target: id, payload: pc.localDescription }));
 }
 
-///// Update senders when stream changes /////
 async function updateAllPeersTrack() {
   if (!currentTrack) return;
   for (const [id, pc] of pcs.entries()) {
@@ -670,6 +769,19 @@ async function updateAllPeersTrack() {
   }
 }
 
+async function setAllSendersBitrate(bitrate) {
+  for (const pc of pcs.values()) {
+    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
+    if (sender) {
+      try {
+        const p = sender.getParameters();
+        if (!p.encodings) p.encodings = [{}];
+        p.encodings[0].maxBitrate = bitrate;
+        await sender.setParameters(p);
+      } catch (e) {}
+    }
+  }
+}
 async function setSenderBitrate(sender, bitrate) {
   if (!sender || !sender.getParameters) return;
   try {
@@ -680,218 +792,29 @@ async function setSenderBitrate(sender, bitrate) {
   } catch (e) {}
 }
 
-///// File upload + metadata (kept from your original) /////
-fileInput?.addEventListener("change", (e) => {
-  const files = Array.from(e.target.files || []);
-  playlist = files;
-  tracksMeta = files.map(f => ({
-    title: f.name.replace(/\.[^/.]+$/, ""),
-    artist: "Unknown Artist",
-    cover: null,
-    url: null,
-    file: f
-  }));
-  playlistEl.innerHTML = "";
-
-  files.forEach((file, idx) => {
-    const item = document.createElement("div");
-    item.className = "song";
-    item.dataset.index = idx;
-    item.innerHTML = `
-      <div class="cover" id="cover-${idx}" style="background-image:url('https://cdn-icons-png.flaticon.com/512/727/727245.png')"></div>
-      <div class="meta">
-        <div class="title" id="title-${idx}">${tracksMeta[idx].title}</div>
-        <div class="artist" id="artist-${idx}">${tracksMeta[idx].artist}</div>
-      </div>
-    `;
-    item.addEventListener("click", () => playSong(idx));
-    playlistEl.appendChild(item);
-
-    // jsmediatags if available - non-blocking
-    if (window.jsmediatags) {
-      jsmediatags.read(file, {
-        onSuccess: (tag) => {
-          const t = tag.tags || {};
-          tracksMeta[idx].title = t.title || tracksMeta[idx].title;
-          tracksMeta[idx].artist = t.artist || tracksMeta[idx].artist;
-          const titleEl = document.getElementById(`title-${idx}`);
-          const artistEl = document.getElementById(`artist-${idx}`);
-          if (titleEl) titleEl.textContent = tracksMeta[idx].title;
-          if (artistEl) artistEl.textContent = tracksMeta[idx].artist;
-
-          if (t.picture && t.picture.data) {
-            const data = t.picture.data;
-            const format = t.picture.format || "image/jpeg";
-            let base64 = "";
-            for (let i = 0; i < data.length; i++) base64 += String.fromCharCode(data[i]);
-            tracksMeta[idx].cover = `data:${format};base64,${btoa(base64)}`;
-            document.getElementById(`cover-${idx}`).style.backgroundImage = `url(${tracksMeta[idx].cover})`;
-          }
-        }
-      });
-    }
-  });
-});
-
-///// Play controls, seek, speed, volume (kept) /////
-playPauseBtn?.addEventListener("click", async () => {
-  if (!player.src) return;
-  if (player.paused) {
-    await player.play();
-    playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-  } else {
-    player.pause();
-    playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-  }
-});
-prevBtn && (prevBtn.onclick = () => { if (currentIndex > 0) playSong(currentIndex - 1); });
-nextBtn && (nextBtn.onclick = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); });
-seek && (seek.oninput = () => { if (player.duration) player.currentTime = (seek.value / 100) * player.duration; });
-player.ontimeupdate = () => { if (player.duration && seek) seek.value = (player.currentTime / player.duration) * 100; };
-player.onended = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; };
-volume && (volume.oninput = () => player.volume = volume.value);
-speed && (speed.oninput = () => player.playbackRate = speed.value);
-
-///// Play / Sync / Metadata send /////
-async function playSong(i) {
-  if (!playlist[i]) return;
-  currentIndex = i;
-  const file = playlist[i];
-  const url = tracksMeta[i].url || URL.createObjectURL(file);
-  player.src = url;
-  await player.play();
-  playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-
-  document.querySelectorAll(".song").forEach(el => el.classList.remove("active"));
-  const el = playlistEl.querySelector(`.song[data-index="${i}"]`);
-  if (el) el.classList.add("active");
-
-  updateLiveBadge(i);
-
-  // create a captureStream (if supported)
-  const stream = player.captureStream ? player.captureStream() : null;
-  if (stream) {
-    localStream = stream;
-    currentTrack = stream.getAudioTracks()[0];
-    await updateAllPeersTrack();
-  } else {
-    // fallback: create audioContext destination mixing (for mic mixing we handle separately)
-    startMixForPlayer();
-  }
-
-  // send metadata
-  const meta = tracksMeta[i] || {};
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "metadata", payload: { title: meta.title || "Unknown", artist: meta.artist || "Unknown Artist", cover: meta.cover || "", url: meta.url || null, index: i } }));
-  }
-
-  // start periodic sync every 1s
-  if (syncInterval) clearInterval(syncInterval);
-  syncInterval = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "sync", payload: { index: currentIndex, currentTime: player.currentTime, playing: !player.paused } }));
-    }
-  }, 1000);
-}
-
-function updateLiveBadge(i) {
-  liveBadge.style.display = "block";
-}
-
-function startMixForPlayer() {
-  // fallback mixing if captureStream not available
-  try {
-    const ctx = new AudioContext();
-    const destNode = ctx.createMediaStreamDestination();
-    const src = ctx.createMediaElementSource(player);
-    src.connect(destNode);
-    src.connect(ctx.destination);
-    localStream = destNode.stream;
-    currentTrack = localStream.getAudioTracks()[0];
-    updateAllPeersTrack();
-  } catch (e) { console.warn("mix fallback failed", e); }
-}
-
-///// Mic mixing toggle /////
-micBtn && (micBtn.onclick = async () => {
-  if (!micEnabled) {
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micEnabled = true;
-      micBtn.style.background = "var(--green)";
-      // merge mic with existing player stream
-      if (player.src) startMixWithMic();
-    } catch (e) {
-      alert("Mic access denied");
-    }
-  } else {
-    if (micStream) micStream.getTracks().forEach(t => t.stop());
-    micStream = null;
-    micEnabled = false;
-    micBtn.style.background = "";
-    // recreate localStream from player only
-    if (player.src) {
-      const s = player.captureStream ? player.captureStream() : null;
-      if (s) { localStream = s; currentTrack = s.getAudioTracks()[0]; updateAllPeersTrack(); }
-    }
-  }
-});
-
-function startMixWithMic() {
-  try {
-    const ctx = new AudioContext();
-    const destNode = ctx.createMediaStreamDestination();
-    const musicSrc = player.captureStream ? ctx.createMediaStreamSource(player.captureStream()) : ctx.createMediaElementSource(player);
-    const micSrc = ctx.createMediaStreamSource(micStream);
-    const gMusic = ctx.createGain(), gMic = ctx.createGain();
-    gMusic.gain.value = 0.15;
-    gMic.gain.value = 0.95;
-    musicSrc.connect(gMusic).connect(destNode);
-    micSrc.connect(gMic).connect(destNode);
-    localStream = destNode.stream;
-    currentTrack = localStream.getAudioTracks()[0];
-    updateAllPeersTrack();
-  } catch (e) {
-    console.warn("startMixWithMic failed", e);
-  }
-}
-
-///// bitrate change
-qualitySel && (qualitySel.onchange = (e) => {
-  currentBitrate = parseInt(e.target.value || "64000", 10);
-  for (const pc of pcs.values()) {
-    const sender = pc.getSenders().find(s => s.track?.kind === "audio");
-    if (sender) setSenderBitrate(sender, currentBitrate);
-  }
-});
-
-///// stop broadcast
-goLiveBtn && (goLiveBtn.onclick = () => {
+// broadcast control
+goLiveBtn.onclick = () => {
   const active = goLiveBtn.classList.toggle("active");
-  if (active) {
-    if (currentIndex === -1 && playlist.length) playSong(0);
-  } else {
-    if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
-    pcs.forEach(pc => { try { pc.close(); } catch{} });
-    pcs.clear();
-    peerCount = 0;
-    updateListenersUI();
-    connectedHosts = [];
-    renderOverlay();
-    liveBadge.style.display = "none";
-  }
-}));
+  if (active) startBroadcast();
+  else stopBroadcast();
+};
+async function startBroadcast() {
+  if (!playlist.length) return alert("Please upload songs first");
+  const idx = currentIndex === -1 ? 0 : currentIndex;
+  await playSong(idx);
+}
+function stopBroadcast() {
+  // stop sending sync
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
+  for (const pc of pcs.values()) try { pc.close(); } catch (e) {}
+  pcs.clear();
+  peerCount = 0;
+  updateListenersUI();
+}
 
-// reconnect button
-reconnectBtn && (reconnectBtn.onclick = () => {
-  try { ws?.close(); } catch {}
-  setTimeout(connectWS, 900);
-});
-
-// cleanup
+// cleanup before unload
 window.addEventListener("beforeunload", () => {
-  try { ws?.close(); } catch {}
-  pcs.forEach(pc => { try { pc.close(); } catch {} });
+  try { ws?.close(); } catch (e) {}
+  pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
 });
-
     </script>
