@@ -642,23 +642,50 @@ micBtn.onclick = async () => {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const ctx = new AudioContext();
       const dest = ctx.createMediaStreamDestination();
-      const musicSrc = localStream ? ctx.createMediaStreamSource(localStream) : ctx.createMediaElementSource(player);
+
+      // Create sources
+      const musicSrc = localStream 
+        ? ctx.createMediaStreamSource(localStream)
+        : ctx.createMediaElementSource(player);
       const micSrc = ctx.createMediaStreamSource(micStream);
-      const gMusic = ctx.createGain(), gMic = ctx.createGain();
-      gMusic.gain.value = 0.1; gMic.gain.value = 0.9;
+
+      // Gain controls
+      const gMusic = ctx.createGain();
+      const gMic = ctx.createGain();
+
+      // 🎶 Lower the music volume drastically (clear speech)
+      gMusic.gain.value = 0.05;  // softer background
+      gMic.gain.value = 1.2;     // slightly boosted mic
+
+      // 🎚️ Add a simple compressor for voice clarity
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -30;
+      comp.knee.value = 20;
+      comp.ratio.value = 3;
+      comp.attack.value = 0.01;
+      comp.release.value = 0.3;
+
+      // 🔗 Connect audio graph
       musicSrc.connect(gMusic).connect(dest);
-      micSrc.connect(gMic).connect(dest);
+      micSrc.connect(gMic).connect(comp).connect(dest);
+
+      // Update stream
       localStream = dest.stream;
       currentTrack = localStream.getAudioTracks()[0];
       await updateAllPeersTrack();
+
       micEnabled = true;
       micBtn.style.background = "var(--green)";
-    } catch (e) { alert("Mic access denied"); }
+    } catch (e) {
+      alert("Mic access denied");
+    }
   } else {
+    // Turn mic off
     if (micStream) micStream.getTracks().forEach(t => t.stop());
     micEnabled = false;
     micStream = null;
     micBtn.style.background = "";
+
     const ctx = new AudioContext();
     const dest = ctx.createMediaStreamDestination();
     const src = ctx.createMediaElementSource(player);
