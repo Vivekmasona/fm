@@ -749,4 +749,42 @@ async function setSenderBitrate(sender, bitrate) {
 
 // --- Broadcast start/stop ---
 goLiveBtn.onclick = () => {
-  const active = goLiveBtn.classList.
+  const active = goLiveBtn.classList.toggle("active");
+  if (active) startBroadcast();
+  else stopBroadcast();
+};
+async function startBroadcast() {
+  if (!playlist.length) return alert("Please upload songs first");
+  const idx = currentIndex === -1 ? 0 : currentIndex;
+  await playSong(idx);
+
+  // IMPORTANT: re-offer to all existing listener IDs so they reconnect without refresh
+  try {
+    for (const id of Array.from(pcs.keys())) {
+      // makePeer will delete closed entries if needed and recreate
+      await makePeer(id);
+    }
+  } catch (e) {
+    console.warn("re-offer on startBroadcast failed", e);
+  }
+}
+function stopBroadcast() {
+  // Close all RTCPeerConnections but DO NOT clear the pcs map.
+  // Keeping the ids allows us to re-offer on next startBroadcast() or ws reconnect.
+  for (const [id, pc] of pcs.entries()) {
+    try { pc.close(); } catch (e) {}
+    // keep the key in the map — makePeer will detect closed and recreate
+  }
+  // DON'T clear pcs here (pcs.clear()), and DON'T set peerCount to 0.
+  // This preserves known listener ids for re-offer on restart.
+  updateListenersUI();
+}
+
+// Cleanup
+window.addEventListener("beforeunload", () => {
+  try { ws?.close(); } catch (e) {}
+  pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
+});
+    </script>
+                
+
