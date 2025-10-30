@@ -379,17 +379,17 @@ footer {
 <!-- hidden audio element used for capture -->
 <audio id="player" crossorigin="anonymous"></audio>
 
-<script>
+
+        <script>
 /*
-  BiharFM Broadcaster
-  - WebSocket + WebRTC
-  - Auto metadata sync (title, artist, cover)
-  - Mic mix, reconnect, bitrate control
+  broadcaster.js — full broadcaster (mini-host aware)
+  - keeps your original behavior (playlist, mic, bitrate, live badge)
+  - sends metadata and periodic sync to server
+  - displays mini-hosts created by server (panel)
 */
-//const WS_URL = "wss://vivekmasona-denotts-96.deno.dev/ws";  
 const WS_URL = "wss://fmconnector.onrender.com";
 
-// DOM refs
+// DOM refs (must exist in HTML)
 const statusDot = document.getElementById("statusDot");
 const listenersEl = document.getElementById("listeners");
 const qualityDisplay = document.getElementById("quality");
@@ -407,29 +407,40 @@ const micBtn = document.getElementById("micBtn");
 const reconnectBtn = document.getElementById("reconnectBtn");
 const player = document.getElementById("player");
 
+// Mini-host panel: add this HTML somewhere in broadcaster page:
+// <div id="miniHostsPanel" style="display:none"><strong>Mini-Hosts:</strong><div id="miniHostsList"></div></div>
+const miniHostsPanel = document.getElementById("miniHostsPanel");
+const miniHostsList = document.getElementById("miniHostsList");
+
 // state
 let ws = null;
-let pcs = new Map();
+let pcs = new Map();               // targetId -> RTCPeerConnection (direct peers / mini-host endpoints)
 let playlist = [];
 let tracksMeta = [];
 let currentIndex = -1;
-let localStream = null;
+let localStream = null;            // mixed stream (music + mic when enabled)
 let currentTrack = null;
 let micStream = null;
 let micEnabled = false;
 let peerCount = 0;
-let currentBitrate = parseInt(qualitySel.value) || 64000;
+let currentBitrate = parseInt(qualitySel?.value) || 64000;
+let miniHosts = new Map();        // pairId -> { miniHostId, members:[] }
+let syncInterval = null;
 
 // --- WebSocket connect + auto reconnect ---
 function connectWS() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-
   ws = new WebSocket(WS_URL);
   setStatusLoading(true);
 
   ws.onopen = () => {
     setStatusConnected(true);
     ws.send(JSON.stringify({ type: "register", role: "broadcaster" }));
+
+    // on reconnect try re-offer to known peer ids (server may still have references)
+    for (const id of Array.from(pcs.keys())) {
+      makePeer(id).catch(()=>{});
+    }
   };
 
   ws.onclose = () => {
@@ -446,7 +457,7 @@ function connectWS() {
   ws.onmessage = async (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      handleWSMessage(msg);
+      await handleWSMessage(msg);
     } catch (e) {
       console.warn("Invalid WS message", e);
     }
@@ -456,25 +467,51 @@ connectWS();
 
 // --- Handle WS messages ---
 async function handleWSMessage(msg) {
-  if (!msg.type) return;
+  if (!msg?.type) return;
 
   if (msg.type === "listener-joined") {
     peerCount++;
     updateListenersUI();
     if (msg.id) await makePeer(msg.id);
-  } else if (msg.type === "peer-left") {
+    return;
+  }
+
+  if (msg.type === "peer-left") {
     peerCount = Math.max(0, peerCount - 1);
     updateListenersUI();
     if (msg.id && pcs.has(msg.id)) {
-      pcs.get(msg.id).close();
+      try { pcs.get(msg.id).close(); } catch {}
       pcs.delete(msg.id);
     }
-  } else if (msg.type === "answer") {
+    removeMiniByMember(msg.id);
+    updateMiniHostsUI();
+    return;
+  }
+
+  if (msg.type === "answer") {
     const pc = pcs.get(msg.from);
-    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(() => {});
-  } else if (msg.type === "candidate") {
+    if (pc && msg.payload) await pc.setRemoteDescription(msg.payload).catch(()=>{});
+    return;
+  }
+
+  if (msg.type === "candidate") {
     const pc = pcs.get(msg.from);
     if (pc && msg.payload) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
+    return;
+  }
+
+  if (msg.type === "pair-created") {
+    // server notifies broadcaster about new pair (mini-host created)
+    if (msg.pairId && msg.miniHostId && Array.isArray(msg.members)) {
+      miniHosts.set(msg.pairId, { miniHostId: msg.miniHostId, members: msg.members.slice() });
+      updateMiniHostsUI();
+    }
+    return;
+  }
+
+  if (msg.type === "metadata") {
+    // server may forward metadata - (not typically needed for broadcaster)
+    return;
   }
 }
 
@@ -496,7 +533,6 @@ function setStatusConnected(connected) {
     statusDot.style.boxShadow = "0 0 10px var(--red)";
   }
 }
-
 reconnectBtn.onclick = () => {
   setStatusLoading(true);
   setStatusConnected(false);
@@ -504,7 +540,33 @@ reconnectBtn.onclick = () => {
   setTimeout(connectWS, 900);
 };
 
-// --- File upload + metadata read ---
+// --- Mini-host panel UI ---
+function updateMiniHostsUI() {
+  if (!miniHostsPanel || !miniHostsList) return;
+  if (miniHosts.size === 0) {
+    miniHostsPanel.style.display = "none";
+    miniHostsList.innerHTML = "";
+    return;
+  }
+  miniHostsPanel.style.display = "block";
+  miniHostsList.innerHTML = "";
+  for (const [pairId, info] of miniHosts.entries()) {
+    const div = document.createElement("div");
+    div.className = "mini-item";
+    div.textContent = `${pairId} → ${info.miniHostId} (${info.members.length} members)`;
+    miniHostsList.appendChild(div);
+  }
+}
+function removeMiniByMember(memberId) {
+  for (const [pairId, info] of miniHosts.entries()) {
+    if (info.members.includes(memberId)) {
+      miniHosts.delete(pairId);
+      return;
+    }
+  }
+}
+
+// --- File upload + metadata read (kept same) ---
 fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);
   playlist = files;
@@ -512,6 +574,7 @@ fileInput.addEventListener("change", (e) => {
     title: f.name.replace(/\.[^/.]+$/, ""),
     artist: "Unknown Artist",
     cover: null,
+    url: null,
     file: f
   }));
   playlistEl.innerHTML = "";
@@ -533,14 +596,12 @@ fileInput.addEventListener("change", (e) => {
     jsmediatags.read(file, {
       onSuccess: (tag) => {
         const t = tag.tags || {};
-        const title = t.title || tracksMeta[idx].title;
-        const artist = t.artist || "Unknown Artist";
-        tracksMeta[idx].title = title;
-        tracksMeta[idx].artist = artist;
+        tracksMeta[idx].title = t.title || tracksMeta[idx].title;
+        tracksMeta[idx].artist = t.artist || "Unknown Artist";
         const titleEl = document.getElementById(`title-${idx}`);
         const artistEl = document.getElementById(`artist-${idx}`);
-        if (titleEl) titleEl.textContent = title;
-        if (artistEl) artistEl.textContent = artist;
+        if (titleEl) titleEl.textContent = tracksMeta[idx].title;
+        if (artistEl) artistEl.textContent = tracksMeta[idx].artist;
 
         if (t.picture && t.picture.data) {
           const data = t.picture.data;
@@ -557,7 +618,7 @@ fileInput.addEventListener("change", (e) => {
   });
 });
 
-// --- Playback controls ---
+// --- Playback controls (kept same) ---
 playPauseBtn.addEventListener("click", async () => {
   if (!player.src) return;
   if (player.paused) {
@@ -570,16 +631,9 @@ playPauseBtn.addEventListener("click", async () => {
 });
 prevBtn.onclick = () => { if (currentIndex > 0) playSong(currentIndex - 1); };
 nextBtn.onclick = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); };
-seek.oninput = () => {
-  if (player.duration) player.currentTime = (seek.value / 100) * player.duration;
-};
-player.ontimeupdate = () => {
-  if (player.duration) seek.value = (player.currentTime / player.duration) * 100;
-};
-player.onended = () => {
-  if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1);
-  else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-};
+seek.oninput = () => { if (player.duration) player.currentTime = (seek.value / 100) * player.duration; };
+player.ontimeupdate = () => { if (player.duration) seek.value = (player.currentTime / player.duration) * 100; };
+player.onended = () => { if (currentIndex + 1 < playlist.length) playSong(currentIndex + 1); else playPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i>'; };
 volume.oninput = () => player.volume = volume.value;
 speed.oninput = () => player.playbackRate = speed.value;
 
@@ -590,12 +644,14 @@ qualitySel.onchange = (e) => {
   setAllSendersBitrate(currentBitrate);
 };
 
-// --- Play song + send metadata ---
+// --- Play song + send metadata + start sync ---
 async function playSong(i) {
   if (!playlist[i]) return;
   currentIndex = i;
   const file = playlist[i];
-  player.src = URL.createObjectURL(file);
+  // Prefer hosted URL if supplied; otherwise use local objectURL
+  const url = tracksMeta[i].url || URL.createObjectURL(file);
+  player.src = url;
   await player.play();
   playPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
 
@@ -610,7 +666,7 @@ async function playSong(i) {
   currentTrack = stream.getAudioTracks()[0];
   await updateAllPeersTrack();
 
-  // 🔴 Send metadata to listeners
+  // send metadata to mini-hosts & listeners via server
   const meta = tracksMeta[i] || {};
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
@@ -618,10 +674,29 @@ async function playSong(i) {
       payload: {
         title: meta.title || "Unknown",
         artist: meta.artist || "Unknown Artist",
-        cover: meta.cover || ""
+        cover: meta.cover || "",
+        url: meta.url || null,
+        index: i
       }
     }));
   }
+
+  // start periodic master sync (every 1s)
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "sync",
+        payload: {
+          index: currentIndex,
+          url,
+          currentTime: player.currentTime,
+          playing: !player.paused,
+          timestamp: Date.now()
+        }
+      }));
+    }
+  }, 1000);
 }
 
 // --- Live badge ---
@@ -635,7 +710,7 @@ function updateLiveBadge(i) {
   el.appendChild(badge);
 }
 
-// --- Mic mixing ---
+// --- Mic mixing (kept same) ---
 micBtn.onclick = async () => {
   if (!micEnabled) {
     try {
@@ -669,20 +744,28 @@ micBtn.onclick = async () => {
   }
 };
 
-// --- WebRTC + bitrate helpers ---
+// --- WebRTC + bitrate helpers (mostly unchanged) ---
 async function makePeer(id) {
   if (!id) return;
   if (pcs.has(id)) {
     const existing = pcs.get(id);
-    if (existing.iceConnectionState === "closed") pcs.delete(id);
-    else return;
+    try {
+      if (existing.iceConnectionState === "closed") pcs.delete(id);
+      else return;
+    } catch (e) { pcs.delete(id); }
   }
   const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   pcs.set(id, pc);
 
   try { if (currentTrack && localStream) pc.addTrack(currentTrack, localStream); } catch (e) {}
-  pc.onicecandidate = e => { if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate })); };
-  pc.onconnectionstatechange = () => { if (["disconnected","failed","closed"].includes(pc.connectionState)) pcs.delete(id); };
+  pc.onicecandidate = e => {
+    if (e.candidate && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "candidate", target: id, payload: e.candidate }));
+  };
+  pc.onconnectionstatechange = () => {
+    if (["disconnected","failed","closed"].includes(pc.connectionState)) {
+      try { pcs.delete(id); } catch {}
+    }
+  };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -694,13 +777,18 @@ async function updateAllPeersTrack() {
   for (const [id, pc] of pcs.entries()) {
     const sender = pc.getSenders().find(s => s.track?.kind === "audio");
     if (sender) {
-      await sender.replaceTrack(currentTrack);
-      setSenderBitrate(sender, currentBitrate);
+      try {
+        await sender.replaceTrack(currentTrack);
+        setSenderBitrate(sender, currentBitrate);
+      } catch (e) {
+        try { await makePeer(id); } catch {}
+      }
     } else {
-      pc.addTrack(currentTrack, localStream);
+      try { pc.addTrack(currentTrack, localStream); } catch (e) {}
     }
   }
 }
+
 async function setAllSendersBitrate(bitrate) {
   for (const pc of pcs.values()) {
     const sender = pc.getSenders().find(s => s.track?.kind === "audio");
@@ -729,10 +817,13 @@ async function startBroadcast() {
   await playSong(idx);
 }
 function stopBroadcast() {
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
   for (const pc of pcs.values()) try { pc.close(); } catch (e) {}
   pcs.clear();
   peerCount = 0;
   updateListenersUI();
+  miniHosts.clear();
+  updateMiniHostsUI();
 }
 
 // Cleanup
@@ -740,7 +831,4 @@ window.addEventListener("beforeunload", () => {
   try { ws?.close(); } catch (e) {}
   pcs.forEach(pc => { try { pc.close(); } catch (e) {} });
 });
-
-</script>
-
-</!doctype>
+        </script>
