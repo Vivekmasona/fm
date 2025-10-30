@@ -158,11 +158,14 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 
 
         
- <script>
-/* Listener script — receives from parent and forwards to children (relay) */
+     <script>
+/*
+  Listener script — cascade-relay mode
+  Paste into root index.html (replace current listener script)
+*/
 const WS_URL = "wss://fmconnector.onrender.com"; // change if needed
 
-// UI refs
+// UI refs (same ids you already have)
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
 const playBtn = document.getElementById("playPauseBtn");
@@ -175,45 +178,49 @@ const timeCounter = document.getElementById("timeCounter");
 const retryOverlay = document.getElementById("retryOverlay");
 const retryBtn = document.getElementById("retryBtn");
 
-// longpress popup preserved
+// longpress password popup preserved
 let lpTimer = null;
 const lpPopup = document.getElementById("lpPopup");
 const lpInput = document.getElementById("lpInput");
 const lpCancel = document.getElementById("lpCancel");
 const lpSubmit = document.getElementById("lpSubmit");
-function openPopup(){ lpPopup.classList.add("show"); lpInput.focus(); }
-function closePopup(){ lpPopup.classList.remove("show"); }
-document.body.addEventListener("touchstart", ()=>{ lpTimer = setTimeout(openPopup,1500); });
-document.body.addEventListener("touchend", ()=>{ clearTimeout(lpTimer); });
+function openPopup() { lpPopup.classList.add("show"); lpInput.focus(); }
+function closePopup() { lpPopup.classList.remove("show"); }
+document.body.addEventListener("touchstart", () => { lpTimer = setTimeout(openPopup, 1500); });
+document.body.addEventListener("touchend", () => { clearTimeout(lpTimer); });
 lpCancel.onclick = closePopup;
-lpSubmit.onclick = ()=>{ if (lpInput.value==="vk007") window.location.href="/cast"; else { lpPopup.classList.add("wrong"); setTimeout(()=>lpPopup.classList.remove("wrong"),400); } };
+lpSubmit.onclick = () => { if (lpInput.value === "vk007") window.location.href = "/cast"; else { lpPopup.classList.add("wrong"); setTimeout(()=>lpPopup.classList.remove("wrong"),400); } };
 
+// time display
 setInterval(()=> {
   if (player && !isNaN(player.currentTime)) {
     const t = Math.floor(player.currentTime);
     const m = Math.floor(t/60).toString().padStart(2,"0");
     const s = (t%60).toString().padStart(2,"0");
-    document.getElementById("timeCounter").textContent = `${m}:${s}`;
+    timeCounter.textContent = `${m}:${s}`;
   }
-},1000);
+}, 1000);
 
 // room badge
 let roomBadge = document.getElementById("roomBadge");
 if (!roomBadge) {
-  roomBadge = document.createElement("span"); roomBadge.id = "roomBadge";
-  roomBadge.style.marginLeft="8px"; roomBadge.style.padding="4px 8px"; roomBadge.style.borderRadius="8px";
-  roomBadge.style.background="rgba(255,255,255,0.03)"; roomBadge.style.color="#ddd";
+  roomBadge = document.createElement("span");
+  roomBadge.id = "roomBadge";
+  roomBadge.style.marginLeft = "8px";
+  roomBadge.style.padding = "4px 8px";
+  roomBadge.style.borderRadius = "8px";
+  roomBadge.style.background = "rgba(255,255,255,0.03)";
+  roomBadge.style.color = "#ddd";
   if (connText && connText.parentElement) connText.insertAdjacentElement("afterend", roomBadge);
 }
 
 // state
 let ws = null;
-let incomingPc = null;
-let incomingStream = null;
-let outgoing = new Map(); // childId -> RTCPeerConnection
+let incomingPc = null;           // PC connected to our parent (to receive audio)
+let incomingStream = null;       // MediaStream we receive from parent
+let outgoing = new Map();        // childId -> RTCPeerConnection (we forward to children)
 let assignedNodeLabel = null;
 let assignedParent = null;
-let hbInt = null;
 let retryCount = 0;
 
 function connectWS() {
@@ -221,40 +228,47 @@ function connectWS() {
   ws = new WebSocket(WS_URL);
   connText.textContent = "Connecting";
   roomBadge.style.display = "none";
-  ws.onopen = ()=> {
+
+  ws.onopen = () => {
+    retryOverlay.style.display = "none";
     connText.textContent = "Waiting for stream";
     ws.send(JSON.stringify({ type: "register", role: "listener" }));
-    if (hbInt) clearInterval(hbInt);
-    hbInt = setInterval(()=>{ try { ws.send(JSON.stringify({ type: "heartbeat" })); } catch(e){} }, 5000);
     retryCount = 0;
   };
+
   ws.onmessage = async (evt) => {
-    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
 
     if (msg.type === "room-assigned") {
       assignedNodeLabel = msg.nodeLabel || assignedNodeLabel;
       assignedParent = msg.parentId || null;
       roomBadge.textContent = `Node: ${assignedNodeLabel}`; roomBadge.style.display = "inline-block";
-      console.log("assigned", assignedNodeLabel, "parent", assignedParent);
+      console.log("assigned", assignedNodeLabel, "parent:", assignedParent);
     }
 
+    // server tells this node to create outgoing offer to newly assigned child
     if (msg.type === "listener-joined") {
       const childId = msg.id;
-      console.log("create outgoing to child", childId);
-      createOutgoingToChild(childId);
+      console.log("you should create outgoing offer for child", childId);
+      await createOutgoingToChild(childId);
     }
 
+    // parent (or parent-level relay) sends an offer to this node
     if (msg.type === "offer") {
       connText.textContent = "Connecting Stream";
+      // close old incoming pc
       if (incomingPc) { try { incomingPc.close(); } catch {} incomingPc = null; incomingStream = null; }
       incomingPc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
       incomingPc.ontrack = (ev) => {
         incomingStream = ev.streams[0];
-        try { player.srcObject = incomingStream; player.play().catch(()=>{}); } catch (e) {}
+        try { player.srcObject = incomingStream; player.play().catch(()=>{}); } catch(e) {}
         connText.textContent = "Live";
-        attachStreamToOutgoing(incomingStream); // forward to children
+        // if we already have outgoing children, attach incoming track to them
+        attachStreamToOutgoing(incomingStream);
       };
+
       incomingPc.onicecandidate = (ev) => { if (ev.candidate) ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate })); };
       try {
         await incomingPc.setRemoteDescription(msg.payload);
@@ -262,12 +276,16 @@ function connectWS() {
         await incomingPc.setLocalDescription(ans);
         ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
         window.__incomingPC = incomingPc;
-      } catch (e) { console.warn("answer err", e); }
+      } catch (e) {
+        console.warn("answer error", e);
+      }
     }
 
     if (msg.type === "candidate") {
       const targetPc = window.__incomingPC || incomingPc;
-      if (targetPc) try { await targetPc.addIceCandidate(msg.payload); } catch (e) { console.warn("candidate err", e); }
+      if (targetPc) {
+        try { await targetPc.addIceCandidate(msg.payload); } catch (e) { console.warn(e); }
+      }
     }
 
     if (msg.type === "metadata") {
@@ -277,23 +295,27 @@ function connectWS() {
     }
 
     if (msg.type === "cmd") {
+      // handle commands from broadcaster (play/pause)
       const c = msg.cmd || msg.payload;
       if (c && c.action) {
-        if (c.action === "play") { try { if (player.srcObject) await player.play(); } catch(e) {} }
-        else if (c.action === "pause") try { player.pause(); } catch(e) {}
-        else if (c.action === "seek" && typeof c.time === "number") try { if (player.srcObject) player.currentTime = c.time; } catch(e) {}
+        if (c.action === "play") {
+          // if incoming stream present, play; otherwise show waiting
+          try { if (player.srcObject) await player.play(); } catch(e) {}
+        } else if (c.action === "pause") {
+          try { player.pause(); } catch(e) {}
+        } else if (c.action === "seek" && typeof c.time === "number") {
+          try { if (player.srcObject) player.currentTime = c.time; } catch(e) {}
+        }
       }
     }
 
     if (msg.type === "reassigned") {
+      // server attempted to reassign our parent
       if (msg.newParent) {
         assignedParent = msg.newParent;
-        console.log("reassigned to parent", assignedParent, "- waiting for offer");
-        connText.textContent = "Reconnecting to new parent...";
-        if (incomingPc) { try { incomingPc.close(); } catch (e) {} incomingPc = null; incomingStream = null; }
-        // keep outgoing pcs; incoming will be attached after new offer
+        console.log("reassigned parent:", assignedParent);
       } else {
-        console.log("no parent yet - waiting");
+        console.log("no parent yet, waiting for broadcaster");
         connText.textContent = "Waiting for broadcaster...";
       }
     }
@@ -314,17 +336,17 @@ connectWS();
 function handleDisconnect() {
   connText.textContent = "Reconnecting...";
   if (incomingPc) try { incomingPc.close(); } catch (e) {}
-  incomingPc = null; incomingStream = null;
-  outgoing.forEach(pc=>{ try { pc.close(); } catch(e) {} });
+  incomingPc = null;
+  incomingStream = null;
+  outgoing.forEach(pc => { try { pc.close(); } catch {} });
   outgoing.clear();
-  if (hbInt) clearInterval(hbInt);
   retryCount++;
-  if (retryCount <= 6) setTimeout(connectWS, 2000);
+  if (retryCount <= 5) setTimeout(connectWS, 3000);
   else retryOverlay.style.display = "flex";
 }
-retryBtn.onclick = ()=>{ retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
+retryBtn.onclick = () => { retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
 
-// create outgoing peer when server assigns a child to us
+// Create outgoing peer to child (server told us child is assigned to this node)
 async function createOutgoingToChild(childId) {
   if (!childId) return;
   if (outgoing.has(childId)) {
@@ -335,9 +357,9 @@ async function createOutgoingToChild(childId) {
   const pcOut = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
   outgoing.set(childId, pcOut);
 
-  // attach incoming stream track if available now
+  // If we already have incomingStream, attach its audio track
   if (incomingStream && incomingStream.getAudioTracks().length) {
-    try { pcOut.addTrack(incomingStream.getAudioTracks()[0], incomingStream); } catch(e) { console.warn("addTrack outgoing", e); }
+    try { pcOut.addTrack(incomingStream.getAudioTracks()[0], incomingStream); } catch (e) { console.warn("addTrack outgoing", e); }
   }
 
   pcOut.onicecandidate = ev => { if (ev.candidate) ws.send(JSON.stringify({ type: "candidate", target: childId, payload: ev.candidate })); };
@@ -348,6 +370,7 @@ async function createOutgoingToChild(childId) {
     }
   };
 
+  // create offer even if no track yet (we'll replaceTrack when incoming arrives)
   try {
     const offer = await pcOut.createOffer();
     await pcOut.setLocalDescription(offer);
@@ -355,7 +378,7 @@ async function createOutgoingToChild(childId) {
   } catch (e) { console.warn("createOutgoingToChild err", e); }
 }
 
-// attach incoming stream to all outgoing pcs
+// When incomingStream arrives, attach it to all outgoing children
 function attachStreamToOutgoing(stream) {
   if (!stream) return;
   for (const [childId, pcOut] of outgoing.entries()) {
@@ -366,30 +389,29 @@ function attachStreamToOutgoing(stream) {
       } else {
         pcOut.addTrack(stream.getAudioTracks()[0], stream);
       }
-    } catch (e) { console.warn("attachStream err for", childId, e); }
+    } catch (e) {
+      console.warn("attachStream err for", childId, e);
+    }
   }
 }
 
-// UI playback button (mostly controlled via cmd)
-playBtn.onclick = async ()=> {
+// player controls (play/pause button) - only UI fallback; audio comes from incoming stream
+playBtn.onclick = async () => {
   if (!player.srcObject && player.paused) return;
-  if (player.paused) { try { await player.play(); } catch(e) {} } else player.pause();
+  if (player.paused) { try { await player.play(); } catch (e) {} } else player.pause();
 };
-player.addEventListener("pause", ()=>{ playIcon.style.display="block"; pauseIcon.style.display="none"; });
-player.addEventListener("play", ()=>{ playIcon.style.display="none"; pauseIcon.style.display="block"; });
+player.addEventListener("pause", ()=>{ playIcon.style.display = "block"; pauseIcon.style.display = "none"; });
+player.addEventListener("play", ()=>{ playIcon.style.display = "none"; pauseIcon.style.display = "block"; });
 
-document.getElementById("shareBtn").onclick = ()=> { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
-document.getElementById("chatBtn").onclick = ()=> { window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank"); };
+// share & chat (same)
+document.getElementById("shareBtn").onclick = () => { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
+document.getElementById("chatBtn").onclick = () => { window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank"); };
 
-let deferredPrompt; const installPopup = document.getElementById("installPopup"); const installBtn = document.getElementById("installBtn");
-window.addEventListener("beforeinstallprompt", (e)=>{ if (localStorage.getItem("biharFMInstalled")) return; e.preventDefault(); deferredPrompt = e; setTimeout(()=>installPopup.classList.add("show"),2000); });
-installBtn.onclick = async ()=>{ installPopup.classList.remove("show"); if (deferredPrompt) { deferredPrompt.prompt(); const choice = await deferredPrompt.userChoice; if (choice.outcome==="accepted") localStorage.setItem("biharFMInstalled","true"); deferredPrompt = null; } };
-function hideInstallPopup(){ installPopup.classList.remove("show"); localStorage.setItem("biharFMInstalled","true"); }
- </script>     
-                  
-
-  
-</body>
-</html>
-
-
+// install prompt kept as original
+let deferredPrompt;
+const installPopup = document.getElementById("installPopup");
+const installBtn = document.getElementById("installBtn");
+window.addEventListener("beforeinstallprompt", (e) => { if (localStorage.getItem("biharFMInstalled")) return; e.preventDefault(); deferredPrompt = e; setTimeout(()=>installPopup.classList.add("show"),2000); });
+installBtn.onclick = async () => { installPopup.classList.remove("show"); if (deferredPrompt) { deferredPrompt.prompt(); const choice = await deferredPrompt.userChoice; if (choice.outcome === "accepted") localStorage.setItem("biharFMInstalled","true"); deferredPrompt = null; } };
+function hideInstallPopup() { installPopup.classList.remove("show"); localStorage.setItem("biharFMInstalled","true"); }
+     </script>
