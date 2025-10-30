@@ -157,13 +157,10 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 
 <audio id="player" autoplay></audio>
 
-<script>
-/*
- listener.html script
- - long-press password gate (vk007)
- - unified listener / mini-host behavior
- - responds to server messages: pair-created, pair-removed, sync, offer, answer, candidate, metadata
-*/
+        <script>
+/* ======================================================
+   BiharFM Listener (Mini-host P2P mesh)
+   ====================================================== */
 const WS_URL = "wss://fmconnector.onrender.com";
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
@@ -177,115 +174,39 @@ const timeCounter = document.getElementById("timeCounter");
 const retryOverlay = document.getElementById("retryOverlay");
 const retryBtn = document.getElementById("retryBtn");
 
-// long press popup elements
-const lpPopup = document.getElementById("lpPopup");
-const lpInput = document.getElementById("lpInput");
-const lpCancel = document.getElementById("lpCancel");
-const lpSubmit = document.getElementById("lpSubmit");
-
 let ws = null;
-let pc = null; // for receiving stream if plain listener
-let miniPcMap = new Map(); // if mini-host: memberId -> RTCPeerConnection
-let role = "listener";
-let pairId = null;
-let members = [];
-let myId = null;
+let pc = null;
+let miniHost = false;
+let miniId = "vivek" + Math.floor(1000 + Math.random() * 9000);
+let myRole = "listener";
+let currentStream = null;
+let downstreamPeers = new Map();
+let connectedTo = null;
+let listenerCount = 0;
 
-let reconnectTimeout = null, reconnecting = false, retryCount = 0;
-const PAIR_PASSWORD = "vk007";
-
-// time counter update
-setInterval(()=>{
-  if(player && !isNaN(player.currentTime)){
-    const t=Math.floor(player.currentTime);
-    const m=Math.floor(t/60).toString().padStart(2,"0");
-    const s=(t%60).toString().padStart(2,"0");
-    timeCounter.textContent=`${m}:${s}`;
-  }
-},1000);
-
-function connectWS(){
-  reconnecting = false;
-  retryOverlay.style.display="none";
+/* ----------------------------------------------------
+   Connect to WebSocket Signaling
+---------------------------------------------------- */
+function connectWS() {
   ws = new WebSocket(WS_URL);
-  connText.textContent="Connecting";
+  connText.textContent = "Connecting…";
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ type: "register", role: "listener" }));
-    connText.textContent = "Waiting for stream";
-    retryCount = 0;
+    ws.send(JSON.stringify({ type: "register", role: "listener", id: miniId }));
+    connText.textContent = "Waiting for stream…";
   };
 
   ws.onmessage = async (e) => {
     const msg = JSON.parse(e.data);
-
-    if (msg.type === "pair-created") {
-      pairId = msg.pairId;
-      role = msg.role;
-      members = msg.members || [];
-      console.log("Pair created", pairId, role, members);
-
-      if (role === "mini-host") {
-        connText.textContent = "Mini-host (preparing)";
-        setupMiniHost(pairId, members);
-      } else if (role === "paired-listener") {
-        connText.textContent = "Paired listener (waiting for mini-host)";
-      }
-    }
-
-    if (msg.type === "pair-removed") {
-      pairId = null;
-      role = "listener";
-      members = [];
-      connText.textContent = "Pair removed. Waiting...";
-      try { ws.send(JSON.stringify({ type: "register", role: "listener" })); } catch(e){}
-    }
-
-    if (msg.type === "sync") {
-      if (typeof msg.currentTime === "number" && Math.abs(player.currentTime - msg.currentTime) > 0.5) {
-        try { player.currentTime = msg.currentTime; } catch(e){}
-      }
-      if (msg.playing) player.play().catch(()=>{}); else player.pause();
-    }
-
-    if (msg.type === "metadata") {
-      if (msg.title) songTitle.textContent = msg.title;
-      if (msg.artist) artistName.textContent = msg.artist;
-      if (msg.cover) coverImg.src = msg.cover;
-    }
-
     if (msg.type === "offer") {
-      // offer from mini-host -> we are plain listener
-      if (pc) { try { pc.close(); } catch (e) {} pc = null; }
-      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302"}] });
-      pc.ontrack = (ev) => {
-        player.srcObject = ev.streams[0];
-        player.play().catch(()=>{});
-        connText.textContent = "Live";
-      };
-      pc.onicecandidate = (ev) => { if (ev.candidate) ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate })); };
-      await pc.setRemoteDescription(msg.payload);
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: answer }));
-    }
-
-    if (msg.type === "answer") {
-      const from = msg.from;
-      const pcOut = miniPcMap.get(from);
-      if (pcOut) {
-        try { await pcOut.setRemoteDescription(msg.payload); } catch (e) { console.warn(e); }
-      }
-    }
-
-    if (msg.type === "candidate") {
-      const from = msg.from;
-      if (role === "mini-host") {
-        const out = miniPcMap.get(from);
-        if (out) try { await out.addIceCandidate(msg.payload); } catch (e) {}
-      } else {
-        if (pc) try { await pc.addIceCandidate(msg.payload); } catch (e) {}
-      }
+      connectToBroadcaster(msg);
+    } else if (msg.type === "candidate" && pc) {
+      try { await pc.addIceCandidate(msg.payload); } catch {}
+    } else if (msg.type === "metadata") {
+      updateMetadata(msg);
+    } else if (msg.type === "mini-connect") {
+      // listener assigned to this mini-host
+      if (miniHost && currentStream) makeMiniPeer(msg.id);
     }
   };
 
@@ -293,97 +214,145 @@ function connectWS(){
   ws.onerror = () => handleDisconnect();
 }
 
-function handleDisconnect(){
-  if (reconnecting) return;
-  reconnecting = true;
-  connText.textContent="Reconnecting...";
-  if(pc){pc.close();pc=null;}
-  if(reconnectTimeout) clearTimeout(reconnectTimeout);
-  retryCount++;
-  if(retryCount <= 5){ reconnectTimeout=setTimeout(()=>connectWS(),3000); }
-  else retryOverlay.style.display="flex";
-}
-retryBtn.onclick=()=>{retryCount=0;connectWS();};
+async function connectToBroadcaster(msg) {
+  connText.textContent = "Connecting stream…";
+  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
 
-// mini-host setup
-async function setupMiniHost(pairIdValue, membersList) {
-  pairId = pairIdValue;
-  members = membersList || [];
-  await ensurePlayerCanPlay();
+  pc.ontrack = (ev) => {
+    currentStream = ev.streams[0];
+    player.srcObject = currentStream;
+    player.play().catch(() => {});
+    connText.textContent = "Live";
 
-  const stream = player.captureStream ? player.captureStream() : null;
-  if (!stream) {
-    console.warn("captureStream not supported");
-    return;
-  }
-
-  // create outbound peer connections to other members (excluding self)
-  // members are server ids; mini-host initiates offers
-  const peers = members.filter(id => id !== myId);
-  for (const memberId of peers) {
-    const pcOut = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-    miniPcMap.set(memberId, pcOut);
-
-    stream.getTracks().forEach(t => {
-      try { pcOut.addTrack(t, stream); } catch (e) {}
-    });
-
-    pcOut.onicecandidate = (ev) => {
-      if (ev.candidate && ws?.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: "candidate", target: memberId, payload: ev.candidate, pairId }));
-      }
-    };
-
-    try {
-      const offer = await pcOut.createOffer();
-      await pcOut.setLocalDescription(offer);
-      ws.send(JSON.stringify({ type: "offer", target: memberId, payload: offer, pairId }));
-    } catch (err) {
-      console.warn("mini-host offer fail", err);
+    // Every 3rd listener acts as mini-host
+    const groupNum = parseInt(miniId.replace("vivek", "")) % 3;
+    if (groupNum === 0) {
+      miniHost = true;
+      ws.send(JSON.stringify({ type: "mini-ready", id: miniId }));
+      console.log("🎙️ Mini host activated:", miniId);
     }
+  };
+
+  pc.onicecandidate = (ev) => {
+    if (ev.candidate)
+      ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
+  };
+
+  await pc.setRemoteDescription(msg.payload);
+  const ans = await pc.createAnswer();
+  await pc.setLocalDescription(ans);
+  ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
+}
+
+/* ----------------------------------------------------
+   Mini-host: forward stream to 2 downstream peers
+---------------------------------------------------- */
+async function makeMiniPeer(targetId) {
+  if (!currentStream) return;
+  const peer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  downstreamPeers.set(targetId, peer);
+
+  peer.onicecandidate = (e) => {
+    if (e.candidate)
+      ws.send(JSON.stringify({ type: "candidate", target: targetId, payload: e.candidate }));
+  };
+  peer.onconnectionstatechange = () => {
+    if (["failed", "closed"].includes(peer.connectionState)) downstreamPeers.delete(targetId);
+  };
+
+  currentStream.getTracks().forEach((t) => peer.addTrack(t, currentStream));
+  const offer = await peer.createOffer();
+  await peer.setLocalDescription(offer);
+  ws.send(JSON.stringify({ type: "offer", target: targetId, payload: offer, from: miniId }));
+}
+
+/* ----------------------------------------------------
+   Metadata and UI updates
+---------------------------------------------------- */
+function updateMetadata(msg) {
+  if (msg.title) songTitle.textContent = msg.title;
+  if (msg.artist) artistName.textContent = msg.artist;
+  if (msg.cover) coverImg.src = msg.cover;
+}
+
+function handleDisconnect() {
+  connText.textContent = "Reconnecting…";
+  setTimeout(connectWS, 3000);
+}
+
+/* ----------------------------------------------------
+   Play/Pause controls and UI
+---------------------------------------------------- */
+playBtn.onclick = async () => {
+  if (player.paused) {
+    try { await player.play(); } catch {}
+  } else player.pause();
+};
+
+player.addEventListener("pause", () => {
+  playIcon.style.display = "block";
+  pauseIcon.style.display = "none";
+});
+player.addEventListener("play", () => {
+  playIcon.style.display = "none";
+  pauseIcon.style.display = "block";
+});
+
+setInterval(() => {
+  if (player && !isNaN(player.currentTime)) {
+    const t = Math.floor(player.currentTime);
+    const m = String(Math.floor(t / 60)).padStart(2, "0");
+    const s = String(t % 60).padStart(2, "0");
+    timeCounter.textContent = `${m}:${s}`;
   }
-}
+}, 1000);
 
-async function ensurePlayerCanPlay() {
-  try {
-    player.muted = true;
-    await player.play();
-    player.pause();
-    player.muted = false;
-  } catch (e) {}
-}
+/* ----------------------------------------------------
+   Share + Chat buttons
+---------------------------------------------------- */
+document.getElementById("shareBtn").onclick = () => {
+  if (navigator.share)
+    navigator.share({ title: "🎧 BiharFM Live", text: "Listen now!", url: location.href });
+};
 
-// long-press unlock
+document.getElementById("chatBtn").onclick = () => {
+  window.open(
+    "https://wa.me/?text=🎧 Listen BiharFM Live → " + encodeURIComponent(location.href),
+    "_blank"
+  );
+};
+
+/* ----------------------------------------------------
+   Long-press dashboard unlock (same as old)
+---------------------------------------------------- */
 let lpTimer = null;
-function openPopup() { lpPopup.classList.add("show"); lpInput.focus(); }
-function closePopup() { lpPopup.classList.remove("show"); }
-document.body.addEventListener("touchstart", () => { lpTimer = setTimeout(openPopup, 1500); });
-document.body.addEventListener("touchend", () => { clearTimeout(lpTimer); });
+const lpPopup = document.getElementById("lpPopup");
+const lpInput = document.getElementById("lpInput");
+const lpCancel = document.getElementById("lpCancel");
+const lpSubmit = document.getElementById("lpSubmit");
 
-lpCancel.onclick = () => closePopup();
+function openPopup() {
+  lpPopup.classList.add("show");
+  lpInput.focus();
+}
+function closePopup() {
+  lpPopup.classList.remove("show");
+}
+document.body.addEventListener("touchstart", () => {
+  lpTimer = setTimeout(openPopup, 1500);
+});
+document.body.addEventListener("touchend", () => clearTimeout(lpTimer));
+lpCancel.onclick = closePopup;
 lpSubmit.onclick = () => {
-  if (lpInput.value === PAIR_PASSWORD) {
-    lpPopup.classList.remove("show");
-    if (!ws || ws.readyState !== WebSocket.OPEN) connectWS();
-  } else {
+  if (lpInput.value === "vk007") window.location.href = "/cast";
+  else {
     lpPopup.classList.add("wrong");
     setTimeout(() => lpPopup.classList.remove("wrong"), 400);
   }
 };
 
-// play/pause UI
-playBtn.onclick = async () => { if (player.paused) await player.play(); else player.pause(); };
-player.addEventListener("pause",()=>{ playIcon.style.display="block"; pauseIcon.style.display="none"; });
-player.addEventListener("play",()=>{ playIcon.style.display="none"; pauseIcon.style.display="block"; });
-
-// share / chat
-document.getElementById("shareBtn")?.onclick = () => { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
-document.getElementById("chatBtn")?.onclick = () => { window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank"); };
-
-// init
-myId = "client-" + Math.floor(Math.random()*1000000);
+/* ----------------------------------------------------
+   Start everything
+---------------------------------------------------- */
 connectWS();
-</script>
-
-</body>
-</html>
+        </script>
