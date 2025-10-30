@@ -638,39 +638,38 @@ function updateLiveBadge(i) {
 // --- Mic mixing ---
 
       let audioCtx;
-let musicGain, micGain, comp;
-let destNode;
-let fadeInterval;
+let musicNode, micNode, musicGain, micGain, comp, destNode;
+let micStream;
+let micEnabled = false;
+let fadeTimer;
 
-async function smoothFade(target, toValue, duration = 1000) {
-  // Smooth fade using Web Audio automation
-  const stepTime = 0.02; // seconds
-  const steps = duration / (stepTime * 1000);
-  const current = target.gain.value;
-  const delta = (toValue - current) / steps;
-  let step = 0;
+async function fadeGain(gainNode, target, time = 1500) {
+  if (!gainNode) return;
+  gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+  gainNode.gain.linearRampToValueAtTime(target, audioCtx.currentTime + time / 1000);
+}
 
-  if (fadeInterval) clearInterval(fadeInterval);
-
-  fadeInterval = setInterval(() => {
-    step++;
-    target.gain.value += delta;
-    if (step >= steps) {
-      target.gain.value = toValue;
-      clearInterval(fadeInterval);
-    }
-  }, stepTime * 1000);
+async function setupAudioGraph() {
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (!destNode) destNode = audioCtx.createMediaStreamDestination();
+  if (!musicGain) {
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = 1.0;
+  }
+  if (!musicNode) {
+    musicNode = audioCtx.createMediaElementSource(player);
+    musicNode.connect(musicGain).connect(destNode);
+  }
+  return destNode;
 }
 
 micBtn.onclick = async () => {
-  if (!audioCtx) audioCtx = new AudioContext();
+  await setupAudioGraph();
 
   if (!micEnabled) {
     try {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      if (!destNode) destNode = audioCtx.createMediaStreamDestination();
-      if (!musicGain) musicGain = audioCtx.createGain();
       if (!micGain) micGain = audioCtx.createGain();
       if (!comp) {
         comp = audioCtx.createDynamicsCompressor();
@@ -681,59 +680,42 @@ micBtn.onclick = async () => {
         comp.release.value = 0.3;
       }
 
-      // Disconnect old nodes safely
-      try { musicGain.disconnect(); micGain.disconnect(); } catch {}
+      // remove previous mic node if any
+      try { micNode?.disconnect(); } catch {}
 
-      // Sources
-      const musicSrc = localStream
-        ? audioCtx.createMediaStreamSource(localStream)
-        : audioCtx.createMediaElementSource(player);
-      const micSrc = audioCtx.createMediaStreamSource(micStream);
+      micNode = audioCtx.createMediaStreamSource(micStream);
+      micNode.connect(micGain).connect(comp).connect(destNode);
 
-      // Default levels
-      musicGain.gain.value = 1.0;
-      micGain.gain.value = 0.0;
+      // smooth fade
+      fadeGain(musicGain, 0.08, 1500);
+      fadeGain(micGain, 1.1, 1500);
 
-      // Chain connections
-      musicSrc.connect(musicGain).connect(destNode);
-      micSrc.connect(micGain).connect(comp).connect(destNode);
-
-      // Fade smoothly: song down, mic up
-      smoothFade(musicGain, 0.05, 1500);
-      smoothFade(micGain, 1.1, 1500);
-
-      // Update stream for peers
       localStream = destNode.stream;
       currentTrack = localStream.getAudioTracks()[0];
       await updateAllPeersTrack();
 
       micEnabled = true;
       micBtn.style.background = "var(--green)";
-    } catch (e) {
+    } catch (err) {
       alert("Mic access denied");
     }
   } else {
-    // MIC OFF
-    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    // mic off
+    micStream?.getTracks().forEach(t => t.stop());
+    micNode?.disconnect();
     micStream = null;
     micEnabled = false;
     micBtn.style.background = "";
 
-    // Smooth fade back: song up, mic down
-    if (musicGain && micGain) {
-      smoothFade(musicGain, 1.0, 1500);
-      smoothFade(micGain, 0.0, 1000);
-    }
+    fadeGain(musicGain, 1.0, 1500);
+    fadeGain(micGain, 0.0, 1000);
 
-    // Rebuild stream with just music (optional)
-    const dest = audioCtx.createMediaStreamDestination();
-    const musicSrc = audioCtx.createMediaElementSource(player);
-    musicSrc.connect(dest);
-    localStream = dest.stream;
+    localStream = destNode.stream;
     currentTrack = localStream.getAudioTracks()[0];
     await updateAllPeersTrack();
   }
 };
+      
 // --- WebRTC + bitrate helpers ---
 async function makePeer(id) {
   if (!id) return;
