@@ -157,10 +157,7 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 <audio id="player" autoplay></audio>  
 
      <script>
-/* Listener script — paste into index.html (replace existing listener script)
-   Preserves longpress dashboard and password redirect 'vk007'
-*/
-const WS_URL = "wss://fmconnector.onrender.com"; // change if needed
+const WS_URL = "wss://fmconnector.onrender.com";
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
 const playBtn = document.getElementById("playPauseBtn");
@@ -169,188 +166,86 @@ const pauseIcon = document.getElementById("pauseIcon");
 const songTitle = document.getElementById("songTitle");
 const artistName = document.getElementById("artistName");
 const coverImg = document.getElementById("coverImg");
-const timeCounter = document.getElementById("timeCounter");
-const retryOverlay = document.getElementById("retryOverlay");
-const retryBtn = document.getElementById("retryBtn");
 
-// Keep longpress dashboard logic (password 'vk007')
-let lpTimer = null;
-const lpPopup = document.getElementById("lpPopup");
-const lpInput = document.getElementById("lpInput");
-const lpCancel = document.getElementById("lpCancel");
-const lpSubmit = document.getElementById("lpSubmit");
-function openPopup() { lpPopup.classList.add("show"); lpInput.focus(); }
-function closePopup() { lpPopup.classList.remove("show"); }
-document.body.addEventListener("touchstart", () => { lpTimer = setTimeout(openPopup, 1500); });
-document.body.addEventListener("touchend", () => { clearTimeout(lpTimer); });
-lpCancel.onclick = closePopup;
-lpSubmit.onclick = () => {
-  if (lpInput.value === "vk007") {
-    window.location.href = "/cast";
-  } else {
-    lpPopup.classList.add("wrong");
-    setTimeout(()=>lpPopup.classList.remove("wrong"), 400);
-  }
+let ws=null, pc=null, assignedRoom=null;
+
+// 👥 ROOM BADGE
+let roomBadge=document.createElement("span");
+roomBadge.style.marginLeft="8px";
+roomBadge.style.padding="4px 10px";
+roomBadge.style.borderRadius="20px";
+roomBadge.style.background="rgba(255,255,255,0.1)";
+roomBadge.style.display="none";
+roomBadge.style.alignItems="center";
+roomBadge.style.gap="6px";
+roomBadge.innerHTML="👥 0";
+connText.after(roomBadge);
+
+function connectWS(){
+ws=new WebSocket(WS_URL);
+
+ws.onopen=()=>{
+connText.textContent="Waiting…";
+ws.send(JSON.stringify({type:"register",role:"listener"}));
 };
 
-// time display updater (keeps your UI timeCounter)
-setInterval(()=> {
-  if (player && !isNaN(player.currentTime)) {
-    const t = Math.floor(player.currentTime);
-    const m = Math.floor(t/60).toString().padStart(2,"0");
-    const s = (t%60).toString().padStart(2,"0");
-    timeCounter.textContent = `${m}:${s}`;
-  }
-}, 1000);
+ws.onmessage=async(e)=>{
+let msg=JSON.parse(e.data);
 
-// create room badge element (shows Room: fm1234)
-let roomBadge = document.getElementById("roomBadge");
-if (!roomBadge) {
-  roomBadge = document.createElement("span");
-  roomBadge.id = "roomBadge";
-  roomBadge.style.marginLeft = "8px";
-  roomBadge.style.padding = "4px 8px";
-  roomBadge.style.borderRadius = "8px";
-  roomBadge.style.background = "rgba(255,255,255,0.03)";
-  roomBadge.style.color = "#ddd";
-  if (connText && connText.parentElement) connText.insertAdjacentElement("afterend", roomBadge);
+if(msg.type==="room-assigned"){
+assignedRoom=msg.roomId;
+let num=assignedRoom.replace(/\D/g,"");
+roomBadge.innerHTML=`👥 ${num}`;
+roomBadge.style.display="flex";
 }
 
-let ws = null;
-let pc = null;
-let reconnectTimer = null;
-let retryCount = 0;
-let assignedRoom = null;
-
-function connectWS() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  ws = new WebSocket(WS_URL);
-  connText.textContent = "Connecting";
-  roomBadge.style.display = "none";
-
-  ws.onopen = () => {
-    retryOverlay.style.display = "none";
-    connText.textContent = "Waiting for stream";
-    ws.send(JSON.stringify({ type: "register", role: "listener" }));
-    retryCount = 0;
-  };
-
-  ws.onmessage = async (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch { return; }
-
-    if (msg.type === "room-assigned") {
-      assignedRoom = msg.roomId;
-      roomBadge.textContent = `Room: ${assignedRoom}`;
-      roomBadge.style.display = "inline-block";
-      console.log("assigned room:", assignedRoom);
-    }
-
-    if (msg.type === "offer") {
-      connText.textContent = "Connecting Stream";
-      // close old pc if exists
-      if (pc) { try { pc.close(); } catch {} pc = null; }
-      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-      pc.ontrack = (ev) => {
-        player.srcObject = ev.streams[0];
-        player.play().catch(()=>{});
-        connText.textContent = "Live";
-      };
-      pc.onicecandidate = (ev) => {
-        if (ev.candidate) ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
-      };
-      try {
-        await pc.setRemoteDescription(msg.payload);
-        const ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
-        window.__listenerPC = pc;
-      } catch (e) {
-        console.warn("answer error", e);
-      }
-    }
-
-    if (msg.type === "candidate") {
-      const targetPc = window.__listenerPC || pc;
-      if (targetPc) {
-        try { await targetPc.addIceCandidate(msg.payload); } catch (e) { console.warn(e); }
-      }
-    }
-
-    if (msg.type === "metadata") {
-      if (msg.title) songTitle.textContent = msg.title;
-      if (msg.artist) artistName.textContent = msg.artist;
-      if (msg.cover) coverImg.src = msg.cover;
-    }
-
-    if (msg.type === "peer-left" && msg.roomId) {
-      if (assignedRoom && assignedRoom === msg.roomId) {
-        roomBadge.textContent = `${roomBadge.textContent} (peer left)`;
-      }
-    }
-  };
-
-  ws.onclose = () => handleDisconnect();
-  ws.onerror = () => handleDisconnect();
+if(msg.type==="offer"){
+pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
+pc.ontrack=e=>{
+player.srcObject=e.streams[0];
+player.play();
+connText.textContent="Live";
+};
+pc.onicecandidate=e=>{
+if(e.candidate)
+ws.send(JSON.stringify({type:"candidate",target:msg.from,payload:e.candidate}));
+};
+await pc.setRemoteDescription(msg.payload);
+let ans=await pc.createAnswer();
+await pc.setLocalDescription(ans);
+ws.send(JSON.stringify({type:"answer",target:msg.from,payload:ans}));
 }
 
-function handleDisconnect() {
-  connText.textContent = "Reconnecting...";
-  if (pc) try { pc.close(); } catch (e) {}
-  pc = null;
-  retryCount++;
-  if (retryCount <= 5) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(connectWS, 3000);
-  } else {
-    retryOverlay.style.display = "flex";
-  }
+if(msg.type==="candidate"){
+pc.addIceCandidate(msg.payload);
 }
-retryBtn.onclick = () => { retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
 
-// player controls (play/pause button)
-playBtn.onclick = async () => {
-  if (!player.srcObject && player.paused) {
-    // nothing to play yet
-    return;
-  }
-  if (player.paused) {
-    try { await player.play(); } catch (e) {}
-  } else player.pause();
-};
-player.addEventListener("pause", ()=>{ playIcon.style.display = "block"; pauseIcon.style.display = "none"; });
-player.addEventListener("play", ()=>{ playIcon.style.display = "none"; pauseIcon.style.display = "block"; });
-
-// share & chat buttons (keep same behavior)
-document.getElementById("shareBtn").onclick = () => { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
-document.getElementById("chatBtn").onclick = () => {
-  window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank");
+if(msg.type==="metadata"){
+songTitle.textContent=msg.title||"Bihar FM";
+artistName.textContent=msg.artist||"Live";
+if(msg.cover)coverImg.src=msg.cover;
+}
 };
 
-// PWA install handler (keeps your code)
-let deferredPrompt;
-const installPopup = document.getElementById("installPopup");
-const installBtn = document.getElementById("installBtn");
-window.addEventListener("beforeinstallprompt", (e) => {
-  if (localStorage.getItem("biharFMInstalled")) return;
-  e.preventDefault();
-  deferredPrompt = e;
-  setTimeout(()=>installPopup.classList.add("show"), 2000);
-});
-installBtn.onclick = async () => {
-  installPopup.classList.remove("show");
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === "accepted") localStorage.setItem("biharFMInstalled", "true");
-    deferredPrompt = null;
-  }
-};
-function hideInstallPopup() { installPopup.classList.remove("show"); localStorage.setItem("biharFMInstalled","true"); }
+ws.onclose=()=>document.getElementById("retryOverlay").style.display="flex";
+}
 
-// init
+playBtn.onclick=()=>{
+if(player.paused){player.play();playIcon.style.display="none";pauseIcon.style.display="block";}
+else{player.pause();playIcon.style.display="block";pauseIcon.style.display="none";}
+};
+
+document.getElementById("shareBtn").onclick=()=>{
+navigator.share&&navigator.share({title:"BiharFM",url:location.href});
+};
+
+document.getElementById("chatBtn").onclick=()=>{
+window.open("https://wa.me/?text=BiharFM Live "+location.href);
+};
+
 connectWS();
      </script>
+     
 </body>
 </html>
 
