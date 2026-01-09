@@ -157,10 +157,12 @@ header{width:100%;display:flex;justify-content:space-between;align-items:center;
 <audio id="player" autoplay></audio>  
 
      <script>
-/* Listener script — paste into index.html (replace existing listener script)
-   Preserves longpress dashboard and password redirect 'vk007'
+/* Listener script — FULL VERSION
+   Longpress dashboard + password redirect 'vk007'
+   Room badge = 👥 roomNumber
 */
-const WS_URL = "wss://fmconnector.onrender.com"; // change if needed
+const WS_URL = "wss://fmconnector.onrender.com";
+
 const player = document.getElementById("player");
 const connText = document.getElementById("connText");
 const playBtn = document.getElementById("playPauseBtn");
@@ -173,57 +175,75 @@ const timeCounter = document.getElementById("timeCounter");
 const retryOverlay = document.getElementById("retryOverlay");
 const retryBtn = document.getElementById("retryBtn");
 
-// Keep longpress dashboard logic (password 'vk007')
+/* ================= LONG PRESS DASHBOARD ================= */
 let lpTimer = null;
 const lpPopup = document.getElementById("lpPopup");
 const lpInput = document.getElementById("lpInput");
 const lpCancel = document.getElementById("lpCancel");
 const lpSubmit = document.getElementById("lpSubmit");
-function openPopup() { lpPopup.classList.add("show"); lpInput.focus(); }
-function closePopup() { lpPopup.classList.remove("show"); }
-document.body.addEventListener("touchstart", () => { lpTimer = setTimeout(openPopup, 1500); });
-document.body.addEventListener("touchend", () => { clearTimeout(lpTimer); });
+
+function openPopup() {
+  lpPopup.classList.add("show");
+  lpInput.focus();
+}
+function closePopup() {
+  lpPopup.classList.remove("show");
+}
+
+document.body.addEventListener("touchstart", () => {
+  lpTimer = setTimeout(openPopup, 1500);
+});
+document.body.addEventListener("touchend", () => clearTimeout(lpTimer));
+
 lpCancel.onclick = closePopup;
 lpSubmit.onclick = () => {
   if (lpInput.value === "vk007") {
     window.location.href = "/cast";
   } else {
     lpPopup.classList.add("wrong");
-    setTimeout(()=>lpPopup.classList.remove("wrong"), 400);
+    setTimeout(() => lpPopup.classList.remove("wrong"), 400);
   }
 };
 
-// time display updater (keeps your UI timeCounter)
-setInterval(()=> {
+/* ================= TIME COUNTER ================= */
+setInterval(() => {
   if (player && !isNaN(player.currentTime)) {
     const t = Math.floor(player.currentTime);
-    const m = Math.floor(t/60).toString().padStart(2,"0");
-    const s = (t%60).toString().padStart(2,"0");
+    const m = String(Math.floor(t / 60)).padStart(2, "0");
+    const s = String(t % 60).padStart(2, "0");
     timeCounter.textContent = `${m}:${s}`;
   }
 }, 1000);
 
-// create room badge element (shows Room: fm1234)
+/* ================= ROOM BADGE ================= */
 let roomBadge = document.getElementById("roomBadge");
 if (!roomBadge) {
   roomBadge = document.createElement("span");
   roomBadge.id = "roomBadge";
   roomBadge.style.marginLeft = "8px";
-  roomBadge.style.padding = "4px 8px";
-  roomBadge.style.borderRadius = "8px";
-  roomBadge.style.background = "rgba(255,255,255,0.03)";
+  roomBadge.style.padding = "4px 10px";
+  roomBadge.style.borderRadius = "20px";
+  roomBadge.style.background = "rgba(255,255,255,0.05)";
   roomBadge.style.color = "#ddd";
-  if (connText && connText.parentElement) connText.insertAdjacentElement("afterend", roomBadge);
+  roomBadge.style.fontSize = "13px";
+  roomBadge.style.display = "none";
+  roomBadge.style.alignItems = "center";
+  roomBadge.style.gap = "6px";
+  if (connText && connText.parentElement) {
+    connText.insertAdjacentElement("afterend", roomBadge);
+  }
 }
 
+/* ================= WS + WEBRTC ================= */
 let ws = null;
 let pc = null;
-let reconnectTimer = null;
 let retryCount = 0;
+let reconnectTimer = null;
 let assignedRoom = null;
 
 function connectWS() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+
   ws = new WebSocket(WS_URL);
   connText.textContent = "Connecting";
   roomBadge.style.display = "none";
@@ -235,123 +255,162 @@ function connectWS() {
     retryCount = 0;
   };
 
-  ws.onmessage = async (evt) => {
+  ws.onmessage = async (e) => {
     let msg;
-    try { msg = JSON.parse(evt.data); } catch { return; }
+    try { msg = JSON.parse(e.data); } catch { return; }
 
+    /* ===== ROOM ASSIGNED ===== */
     if (msg.type === "room-assigned") {
       assignedRoom = msg.roomId;
-      roomBadge.textContent = `Room: ${assignedRoom}`;
-      roomBadge.style.display = "inline-block";
-      console.log("assigned room:", assignedRoom);
+
+      roomBadge.innerHTML = `
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+          xmlns="http://www.w3.org/2000/svg">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"
+            stroke="#ccc" stroke-width="2"/>
+          <circle cx="9" cy="7" r="4"
+            stroke="#ccc" stroke-width="2"/>
+          <circle cx="17" cy="7" r="3"
+            stroke="#ccc" stroke-width="2"/>
+        </svg>
+        <span>${assignedRoom}</span>
+      `;
+      roomBadge.style.display = "inline-flex";
     }
 
+    /* ===== OFFER ===== */
     if (msg.type === "offer") {
       connText.textContent = "Connecting Stream";
-      // close old pc if exists
-      if (pc) { try { pc.close(); } catch {} pc = null; }
-      pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      if (pc) pc.close();
+
+      pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      });
+
       pc.ontrack = (ev) => {
         player.srcObject = ev.streams[0];
         player.play().catch(()=>{});
         connText.textContent = "Live";
       };
+
       pc.onicecandidate = (ev) => {
-        if (ev.candidate) ws.send(JSON.stringify({ type: "candidate", target: msg.from, payload: ev.candidate }));
+        if (ev.candidate) {
+          ws.send(JSON.stringify({
+            type: "candidate",
+            target: msg.from,
+            payload: ev.candidate
+          }));
+        }
       };
-      try {
-        await pc.setRemoteDescription(msg.payload);
-        const ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        ws.send(JSON.stringify({ type: "answer", target: msg.from, payload: ans }));
-        window.__listenerPC = pc;
-      } catch (e) {
-        console.warn("answer error", e);
-      }
+
+      await pc.setRemoteDescription(msg.payload);
+      const ans = await pc.createAnswer();
+      await pc.setLocalDescription(ans);
+      ws.send(JSON.stringify({
+        type: "answer",
+        target: msg.from,
+        payload: ans
+      }));
     }
 
-    if (msg.type === "candidate") {
-      const targetPc = window.__listenerPC || pc;
-      if (targetPc) {
-        try { await targetPc.addIceCandidate(msg.payload); } catch (e) { console.warn(e); }
-      }
+    /* ===== ICE ===== */
+    if (msg.type === "candidate" && pc) {
+      try { await pc.addIceCandidate(msg.payload); } catch {}
     }
 
+    /* ===== METADATA ===== */
     if (msg.type === "metadata") {
       if (msg.title) songTitle.textContent = msg.title;
       if (msg.artist) artistName.textContent = msg.artist;
       if (msg.cover) coverImg.src = msg.cover;
     }
-
-    if (msg.type === "peer-left" && msg.roomId) {
-      if (assignedRoom && assignedRoom === msg.roomId) {
-        roomBadge.textContent = `${roomBadge.textContent} (peer left)`;
-      }
-    }
   };
 
-  ws.onclose = () => handleDisconnect();
-  ws.onerror = () => handleDisconnect();
+  ws.onclose = handleDisconnect;
+  ws.onerror = handleDisconnect;
 }
 
 function handleDisconnect() {
   connText.textContent = "Reconnecting...";
-  if (pc) try { pc.close(); } catch (e) {}
+  if (pc) pc.close();
   pc = null;
   retryCount++;
+
   if (retryCount <= 5) {
-    clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connectWS, 3000);
   } else {
     retryOverlay.style.display = "flex";
   }
 }
-retryBtn.onclick = () => { retryOverlay.style.display = "none"; retryCount = 0; connectWS(); };
 
-// player controls (play/pause button)
+retryBtn.onclick = () => {
+  retryOverlay.style.display = "none";
+  retryCount = 0;
+  connectWS();
+};
+
+/* ================= PLAYER CONTROLS ================= */
 playBtn.onclick = async () => {
-  if (!player.srcObject && player.paused) {
-    // nothing to play yet
-    return;
+  if (!player.srcObject) return;
+  if (player.paused) await player.play();
+  else player.pause();
+};
+
+player.onplay = () => {
+  playIcon.style.display = "none";
+  pauseIcon.style.display = "block";
+};
+player.onpause = () => {
+  playIcon.style.display = "block";
+  pauseIcon.style.display = "none";
+};
+
+/* ================= SHARE / CHAT ================= */
+document.getElementById("shareBtn").onclick = () => {
+  if (navigator.share) {
+    navigator.share({
+      title: "BiharFM Live",
+      text: "Listen BiharFM Live",
+      url: location.href
+    });
   }
-  if (player.paused) {
-    try { await player.play(); } catch (e) {}
-  } else player.pause();
 };
-player.addEventListener("pause", ()=>{ playIcon.style.display = "block"; pauseIcon.style.display = "none"; });
-player.addEventListener("play", ()=>{ playIcon.style.display = "none"; pauseIcon.style.display = "block"; });
-
-// share & chat buttons (keep same behavior)
-document.getElementById("shareBtn").onclick = () => { if (navigator.share) navigator.share({ title: "BiharFM Live", text: "Listen now", url: location.href }); };
 document.getElementById("chatBtn").onclick = () => {
-  window.open("https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href), "_blank");
+  window.open(
+    "https://wa.me/?text=🎧 Listen BiharFM Live ➜ " + encodeURIComponent(location.href),
+    "_blank"
+  );
 };
 
-// PWA install handler (keeps your code)
+/* ================= PWA INSTALL ================= */
 let deferredPrompt;
 const installPopup = document.getElementById("installPopup");
 const installBtn = document.getElementById("installBtn");
+
 window.addEventListener("beforeinstallprompt", (e) => {
   if (localStorage.getItem("biharFMInstalled")) return;
   e.preventDefault();
   deferredPrompt = e;
-  setTimeout(()=>installPopup.classList.add("show"), 2000);
+  setTimeout(() => installPopup.classList.add("show"), 2000);
 });
+
 installBtn.onclick = async () => {
   installPopup.classList.remove("show");
   if (deferredPrompt) {
     deferredPrompt.prompt();
-    const choice = await deferredPrompt.userChoice;
-    if (choice.outcome === "accepted") localStorage.setItem("biharFMInstalled", "true");
+    const res = await deferredPrompt.userChoice;
+    if (res.outcome === "accepted") {
+      localStorage.setItem("biharFMInstalled", "true");
+    }
     deferredPrompt = null;
   }
 };
-function hideInstallPopup() { installPopup.classList.remove("show"); localStorage.setItem("biharFMInstalled","true"); }
 
-// init
+/* ================= INIT ================= */
 connectWS();
-     </script>
+</script>
 </body>
 </html>
+
 
 
