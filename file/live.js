@@ -1,4 +1,4 @@
-const WS_URL="wss://fmconnector.onrender.com";
+const WS_URL="wss://vivekmasona-denocall-61.deno.dev";
 const player=document.getElementById("player");
 const connText=document.getElementById("connText");
 const playBtn=document.getElementById("playPauseBtn");
